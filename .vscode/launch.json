@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Fishing Vision Assistant",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build app",
+      "program": "${workspaceFolder}/src/FishingVisionAssistant.App/bin/Debug/net8.0-windows/FishingVisionAssistant.App.dll",
+      "cwd": "${workspaceFolder}/src/FishingVisionAssistant.App",
+      "stopAtEntry": false
+    }
+  ]
+}
