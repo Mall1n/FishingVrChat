@@ -157,7 +157,7 @@
             <StackPanel>
               <TextBlock FontSize="17" FontWeight="SemiBold" Text="Detector" />
               <TextBlock Margin="0,14,0,5" Text="Рамка мини-игры" />
-              <ProgressBar Maximum="1" Value="{Binding PanelConfidence}" />
+              <ProgressBar Maximum="1" Value="{Binding PanelConfidence, Mode=OneWay}" />
               <TextBlock Margin="0,4,0,0"
                          HorizontalAlignment="Right"
                          FontSize="12"
@@ -165,7 +165,7 @@
                          Text="{Binding PanelConfidenceText}" />
 
               <TextBlock Margin="0,12,0,5" Text="Белая зона" />
-              <ProgressBar Maximum="1" Value="{Binding WhiteZoneConfidence}" />
+              <ProgressBar Maximum="1" Value="{Binding WhiteZoneConfidence, Mode=OneWay}" />
               <TextBlock Margin="0,4,0,0"
                          HorizontalAlignment="Right"
                          FontSize="12"
@@ -173,7 +173,7 @@
                          Text="{Binding WhiteZoneConfidenceText}" />
 
               <TextBlock Margin="0,12,0,5" Text="Значок рыбы" />
-              <ProgressBar Maximum="1" Value="{Binding FishConfidence}" />
+              <ProgressBar Maximum="1" Value="{Binding FishConfidence, Mode=OneWay}" />
               <TextBlock Margin="0,4,0,0"
                          HorizontalAlignment="Right"
                          FontSize="12"
