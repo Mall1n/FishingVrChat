@@ -31,9 +31,14 @@
 
       <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right" Orientation="Horizontal">
         <Button Click="OpenRecording_Click" Content="Открыть запись" />
-        <Button IsEnabled="False"
-                ToolTip="Live capture будет подключён на следующем этапе"
-                Content="Выбрать источник экрана" />
+        <Border Padding="12,8"
+                Background="#1D252D"
+                BorderBrush="{StaticResource PanelBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="3"
+                ToolTip="Live capture будет подключён на следующем этапе">
+          <TextBlock Foreground="{StaticResource SecondaryTextBrush}" Text="Live capture · позже" />
+        </Border>
       </StackPanel>
     </DockPanel>
 
@@ -273,17 +278,12 @@
                    VerticalAlignment="Center"
                    Foreground="{StaticResource SecondaryTextBrush}"
                    Text="{Binding VideoPosition}" />
-        <ComboBox Grid.Column="6"
-                  Width="76"
-                  Padding="6,4"
-                  SelectedIndex="2"
-                  SelectionChanged="PlaybackSpeed_SelectionChanged">
-          <ComboBoxItem Tag="0.25" Content="0.25×" />
-          <ComboBoxItem Tag="0.5" Content="0.5×" />
-          <ComboBoxItem Tag="1" Content="1×" />
-          <ComboBoxItem Tag="1.5" Content="1.5×" />
-          <ComboBoxItem Tag="2" Content="2×" />
-        </ComboBox>
+        <Button Grid.Column="6"
+                Width="76"
+                Margin="0"
+                Click="PlaybackSpeed_Click"
+                Content="{Binding PlaybackSpeedText}"
+                ToolTip="Нажмите, чтобы изменить скорость воспроизведения" />
       </Grid>
     </Border>
   </Grid>

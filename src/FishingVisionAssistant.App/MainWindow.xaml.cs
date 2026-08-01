@@ -1,7 +1,5 @@
-using System.Globalization;
 using System.IO;
 using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
 using FishingVisionAssistant.Capture;
@@ -15,6 +13,8 @@ namespace FishingVisionAssistant.App;
 /// </summary>
 public partial class MainWindow : Window
 {
+    private static readonly double[] PlaybackSpeeds = [0.25, 0.5, 1, 1.5, 2];
+
     private readonly IPanelDetector _panelDetector = new PanelDetector();
     private readonly DispatcherTimer _playbackTimer = new(DispatcherPriority.Render);
     private readonly MainWindowViewModel _viewModel = new();
@@ -22,6 +22,7 @@ public partial class MainWindow : Window
     private VideoAnalysisSession? _videoSession;
     private long _currentFrameIndex;
     private double _playbackSpeed = 1;
+    private int _playbackSpeedIndex = 2;
     private bool _isFrameTransitionActive;
 
     public MainWindow()
@@ -186,7 +187,7 @@ public partial class MainWindow : Window
 
     private async void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (_videoSession is null || Keyboard.FocusedElement is ComboBox or ComboBoxItem)
+        if (_videoSession is null)
         {
             return;
         }
@@ -237,16 +238,11 @@ public partial class MainWindow : Window
         await ShowVideoFrameAsync((long)Math.Round(TimelineSlider.Value));
     }
 
-    private void PlaybackSpeed_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void PlaybackSpeed_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not ComboBox { SelectedItem: ComboBoxItem selectedItem } ||
-            selectedItem.Tag is not string tag ||
-            !double.TryParse(tag, NumberStyles.Float, CultureInfo.InvariantCulture, out var speed))
-        {
-            return;
-        }
-
-        _playbackSpeed = speed;
+        _playbackSpeedIndex = (_playbackSpeedIndex + 1) % PlaybackSpeeds.Length;
+        _playbackSpeed = PlaybackSpeeds[_playbackSpeedIndex];
+        _viewModel.SetPlaybackSpeed(_playbackSpeed);
         UpdatePlaybackInterval();
     }
 

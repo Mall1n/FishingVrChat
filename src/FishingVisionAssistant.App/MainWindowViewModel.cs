@@ -26,6 +26,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string _cacheStatus = "—";
     private string _framePosition = "—";
     private string _videoPosition = "—";
+    private string _playbackSpeedText = "1×";
     private double _panelConfidence;
     private double _timelineMaximum = 1;
     private double _timelineValue;
@@ -126,6 +127,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         private set => SetField(ref _videoPosition, value);
     }
 
+    public string PlaybackSpeedText
+    {
+        get => _playbackSpeedText;
+        private set => SetField(ref _playbackSpeedText, value);
+    }
+
     public string PipelineFps
     {
         get => _pipelineFps;
@@ -186,7 +193,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         }
     }
 
-    public bool CanNavigate => IsVideoLoaded && !IsBusy;
+    public bool CanNavigate => IsVideoLoaded;
 
     public string PlayPauseText => _isPlaying ? "⏸" : "▶";
 
@@ -286,6 +293,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         _isPlaying = isPlaying;
         OnPropertyChanged(nameof(PlayPauseText));
     }
+
+    public void SetPlaybackSpeed(double speed) => PlaybackSpeedText = $"{speed:0.##}×";
 
     public void ApplyAnalysisError(string message)
     {

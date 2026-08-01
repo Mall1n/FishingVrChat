@@ -20,6 +20,11 @@ public sealed class PanelDetectorOptions
     public int MinimumValue { get; init; } = 35;
 
     /// <summary>
+    /// Порог Value для дополнительного прохода, отделяющего светящуюся рамку от тёмного синего фона.
+    /// </summary>
+    public int ContrastPassMinimumValue { get; init; } = 95;
+
+    /// <summary>
     /// Минимальная доля высоты кадра, занимаемая рамкой-кандидатом.
     /// </summary>
     public double MinimumHeightRatio { get; init; } = 0.18;

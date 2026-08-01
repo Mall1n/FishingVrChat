@@ -51,8 +51,34 @@ public sealed class PanelDetector : IPanelDetector
     private PanelDetectionResult Detect(Mat source, Stopwatch stopwatch)
     {
         using var overlay = source.Clone();
-        using var mask = CreateColorMask(source);
+        using var mask = CreateColorMask(source, _options.MinimumValue);
         var candidate = FindBestCandidate(mask, source.Size());
+        var usedContrastPass = false;
+
+        if (candidate is null)
+        {
+            // На ночных сценах тёмная вода попадает в тот же Hue-диапазон и склеивает маску.
+            using var contrastMask = CreateColorMask(source, _options.ContrastPassMinimumValue);
+            candidate = FindBestCandidate(contrastMask, source.Size());
+            if (candidate is not null)
+            {
+                contrastMask.CopyTo(mask);
+                usedContrastPass = true;
+            }
+            else
+            {
+                candidate = FindBestLineCandidate(mask, source);
+                if (candidate is null)
+                {
+                    candidate = FindBestLineCandidate(contrastMask, source);
+                    if (candidate is not null)
+                    {
+                        contrastMask.CopyTo(mask);
+                        usedContrastPass = true;
+                    }
+                }
+            }
+        }
 
         if (candidate is null)
         {
@@ -86,7 +112,9 @@ public sealed class PanelDetector : IPanelDetector
         return new PanelDetectionResult(
             true,
             candidate.Confidence,
-            $"Найдена вертикальная рамка с aspect ratio {candidate.AspectRatio:F1}.",
+            usedContrastPass
+                ? $"Найдена вертикальная рамка с aspect ratio {candidate.AspectRatio:F1} через контрастный проход."
+                : $"Найдена вертикальная рамка с aspect ratio {candidate.AspectRatio:F1}.",
             corners.Select(point => new ImagePoint(point.X, point.Y)).ToArray(),
             EncodePng(overlay),
             EncodePng(mask),
@@ -94,7 +122,7 @@ public sealed class PanelDetector : IPanelDetector
             stopwatch.Elapsed);
     }
 
-    private Mat CreateColorMask(Mat source)
+    private Mat CreateColorMask(Mat source, int minimumValue)
     {
         using var hsv = new Mat();
         Cv2.CvtColor(source, hsv, ColorConversionCodes.BGR2HSV);
@@ -102,7 +130,7 @@ public sealed class PanelDetector : IPanelDetector
         var mask = new Mat();
         Cv2.InRange(
             hsv,
-            new Scalar(_options.MinimumHue, _options.MinimumSaturation, _options.MinimumValue),
+            new Scalar(_options.MinimumHue, _options.MinimumSaturation, minimumValue),
             new Scalar(_options.MaximumHue, 255, 255),
             mask);
 
@@ -155,8 +183,12 @@ public sealed class PanelDetector : IPanelDetector
                 continue;
             }
 
-            var ordered = OrderCorners(rectangle.Points());
-            var longAxis = ordered[3] - ordered[0];
+            var rectanglePoints = rectangle.Points();
+            var firstEdge = rectanglePoints[1] - rectanglePoints[0];
+            var secondEdge = rectanglePoints[2] - rectanglePoints[1];
+            var longAxis = firstEdge.DistanceTo(new Point2f(0, 0)) >= secondEdge.DistanceTo(new Point2f(0, 0))
+                ? firstEdge
+                : secondEdge;
             var verticality = Math.Abs(longAxis.Y) / Math.Max(longAxis.DistanceTo(new Point2f(0, 0)), 0.001);
             if (verticality < 0.45)
             {
@@ -175,6 +207,113 @@ public sealed class PanelDetector : IPanelDetector
         }
 
         return best;
+    }
+
+    private Candidate? FindBestLineCandidate(Mat mask, Mat source)
+    {
+        var minimumLineLength = Math.Max(80, source.Rows * _options.MinimumHeightRatio);
+        var lines = Cv2.HoughLinesP(
+            mask,
+            1,
+            Math.PI / 180,
+            threshold: Math.Max(30, source.Rows / 30),
+            minLineLength: minimumLineLength,
+            maxLineGap: Math.Max(24, source.Rows / 12));
+
+        Candidate? best = null;
+        foreach (var line in lines)
+        {
+            var deltaX = line.P2.X - line.P1.X;
+            var deltaY = line.P2.Y - line.P1.Y;
+            var length = Math.Sqrt(deltaX * deltaX + deltaY * deltaY);
+            var verticality = Math.Abs(deltaY) / Math.Max(length, 0.001);
+            if (length < minimumLineLength || verticality < 0.7)
+            {
+                continue;
+            }
+
+            var width = Math.Clamp(length / 16, 12, source.Rows * 0.06);
+            var center = new Point2f((line.P1.X + line.P2.X) / 2f, (line.P1.Y + line.P2.Y) / 2f);
+            var perpendicularX = (float)(-deltaY / length);
+            var perpendicularY = (float)(deltaX / length);
+            var widthAxisAngle = (float)(Math.Atan2(deltaY, deltaX) * 180 / Math.PI - 90);
+
+            foreach (var offset in new[] { -width / 2, 0, width / 2 })
+            {
+                var shiftedCenter = new Point2f(
+                    center.X + perpendicularX * (float)offset,
+                    center.Y + perpendicularY * (float)offset);
+                var rectangle = new RotatedRect(
+                    shiftedCenter,
+                    new Size2f((float)width, (float)length),
+                    widthAxisAngle);
+                var whiteZoneScore = MeasureWhiteZone(rectangle, source);
+                if (whiteZoneScore <= 0)
+                {
+                    continue;
+                }
+
+                var heightRatio = length / source.Rows;
+                var heightScore = Math.Min(heightRatio / 0.65, 1);
+                var confidence = Math.Clamp(0.45 + 0.25 * heightScore + 0.15 * verticality + 0.15 * whiteZoneScore, 0, 1);
+                var candidate = new Candidate(rectangle, length / width, confidence, length * width * whiteZoneScore);
+                if (best is null || candidate.Rank > best.Rank)
+                {
+                    best = candidate;
+                }
+            }
+        }
+
+        return best;
+    }
+
+    private double MeasureWhiteZone(RotatedRect rectangle, Mat source)
+    {
+        using var rectified = Rectify(source, OrderCorners(rectangle.Points()));
+        using var hsv = new Mat();
+        using var whiteMask = new Mat();
+        Cv2.CvtColor(rectified, hsv, ColorConversionCodes.BGR2HSV);
+        Cv2.InRange(hsv, new Scalar(0, 0, 170), new Scalar(179, 100, 255), whiteMask);
+
+        using var closeKernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(5, 31));
+        Cv2.MorphologyEx(whiteMask, whiteMask, MorphTypes.Close, closeKernel);
+        Cv2.FindContours(
+            whiteMask,
+            out Point[][] contours,
+            out _,
+            RetrievalModes.External,
+            ContourApproximationModes.ApproxSimple);
+
+        var bestScore = 0d;
+        foreach (var contour in contours)
+        {
+            if (contour.Length < 4)
+            {
+                continue;
+            }
+
+            var zone = Cv2.MinAreaRect(contour);
+            var longSide = Math.Max(zone.Size.Width, zone.Size.Height);
+            var shortSide = Math.Min(zone.Size.Width, zone.Size.Height);
+            var heightRatio = longSide / _options.NormalizedHeight;
+            var widthRatio = shortSide / _options.NormalizedWidth;
+            if (shortSide <= 0 || heightRatio < 0.12 || heightRatio > 0.58 || widthRatio < 0.12)
+            {
+                continue;
+            }
+
+            var aspectRatio = longSide / shortSide;
+            if (aspectRatio < 1.8)
+            {
+                continue;
+            }
+
+            var rectangularity = Math.Clamp(Cv2.ContourArea(contour) / Math.Max(longSide * shortSide, 1), 0, 1);
+            var heightScore = 1 - Math.Min(Math.Abs(heightRatio - 0.35) / 0.35, 1);
+            bestScore = Math.Max(bestScore, 0.55 * rectangularity + 0.45 * heightScore);
+        }
+
+        return bestScore;
     }
 
     private Mat Rectify(Mat source, IReadOnlyList<Point2f> corners)
@@ -235,6 +374,10 @@ public sealed class PanelDetector : IPanelDetector
         ArgumentOutOfRangeException.ThrowIfLessThan(options.MinimumHue, 0);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(options.MaximumHue, 179);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(options.MinimumHue, options.MaximumHue);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MinimumValue, 0);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(options.MinimumValue, 255);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.ContrastPassMinimumValue, options.MinimumValue);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(options.ContrastPassMinimumValue, 255);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.MinimumHeightRatio, 0);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(options.MinimumHeightRatio, 1);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.MinimumAspectRatio, 1);

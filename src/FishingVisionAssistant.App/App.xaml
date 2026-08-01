@@ -21,6 +21,14 @@
       <Setter Property="Padding" Value="14,8" />
       <Setter Property="Margin" Value="0,0,8,0" />
       <Setter Property="Cursor" Value="Hand" />
+      <Style.Triggers>
+        <Trigger Property="IsEnabled" Value="False">
+          <Setter Property="Foreground" Value="#71808E" />
+          <Setter Property="Background" Value="#1D252D" />
+          <Setter Property="Cursor" Value="Arrow" />
+          <Setter Property="Opacity" Value="0.72" />
+        </Trigger>
+      </Style.Triggers>
     </Style>
 
     <Style TargetType="ProgressBar">
