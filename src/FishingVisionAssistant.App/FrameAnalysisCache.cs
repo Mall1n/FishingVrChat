@@ -48,4 +48,10 @@ public sealed class FrameAnalysisCache
         _usageOrder.RemoveLast();
         _entries.Remove(last.Value.FrameIndex);
     }
+
+    public void Clear()
+    {
+        _entries.Clear();
+        _usageOrder.Clear();
+    }
 }

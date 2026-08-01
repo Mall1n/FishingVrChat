@@ -9,7 +9,7 @@ namespace FishingVisionAssistant.App;
 public sealed class VideoAnalysisSession : IDisposable
 {
     private readonly FrameAnalysisCache _cache = new(24);
-    private readonly IPanelDetector _panelDetector;
+    private IPanelDetector _panelDetector;
     private readonly ISeekableVideoSource _videoSource;
 
     public VideoAnalysisSession(ISeekableVideoSource videoSource, IPanelDetector panelDetector)
@@ -42,6 +42,15 @@ public sealed class VideoAnalysisSession : IDisposable
         _cache.Add(analysis);
         return analysis;
     }
+
+    public void UpdateDetector(IPanelDetector panelDetector)
+    {
+        _panelDetector = panelDetector ?? throw new ArgumentNullException(nameof(panelDetector));
+        _cache.Clear();
+    }
+
+    public byte[] ExportFramePng(long frameIndex) =>
+        FramePngEncoder.Encode(_videoSource.ReadFrame(frameIndex));
 
     public void Dispose() => _videoSource.Dispose();
 }

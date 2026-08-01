@@ -5,9 +5,9 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
         Title="Fishing Vision Assistant"
-        Width="1380"
+        Width="1600"
         Height="860"
-        MinWidth="1080"
+        MinWidth="1280"
         MinHeight="700"
         Background="{StaticResource WindowBackgroundBrush}"
         PreviewKeyDown="MainWindow_PreviewKeyDown"
@@ -44,92 +44,14 @@
 
     <Grid Grid.Row="2">
       <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="310" />
+        <ColumnDefinition Width="16" />
         <ColumnDefinition Width="*" />
-        <ColumnDefinition Width="18" />
+        <ColumnDefinition Width="16" />
         <ColumnDefinition Width="350" />
       </Grid.ColumnDefinitions>
 
-      <Grid Grid.Column="0">
-        <Grid.RowDefinitions>
-          <RowDefinition Height="2*" />
-          <RowDefinition Height="16" />
-          <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
-
-        <Border Grid.Row="0"
-                Background="{StaticResource PanelBackgroundBrush}"
-                BorderBrush="{StaticResource PanelBorderBrush}"
-                BorderThickness="1"
-                CornerRadius="8">
-          <Grid>
-            <Image Margin="12" Source="{Binding SourcePreview}" Stretch="Uniform" />
-            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-              <TextBlock HorizontalAlignment="Center"
-                         FontSize="18"
-                         FontWeight="SemiBold"
-                         Text="{Binding PreviewTitle}" />
-              <TextBlock Margin="0,8,0,0"
-                         HorizontalAlignment="Center"
-                         Foreground="{StaticResource SecondaryTextBrush}"
-                         Text="{Binding PreviewHint}" />
-            </StackPanel>
-            <Border Margin="12"
-                    Padding="8,4"
-                    HorizontalAlignment="Left"
-                    VerticalAlignment="Top"
-                    Background="#B312171D"
-                    CornerRadius="4">
-              <TextBlock FontSize="12" Text="Исходный кадр + найденная рамка" />
-            </Border>
-          </Grid>
-        </Border>
-
-        <Grid Grid.Row="2">
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*" />
-            <ColumnDefinition Width="16" />
-            <ColumnDefinition Width="*" />
-          </Grid.ColumnDefinitions>
-
-          <Border Grid.Column="0"
-                  Background="{StaticResource PanelBackgroundBrush}"
-                  BorderBrush="{StaticResource PanelBorderBrush}"
-                  BorderThickness="1"
-                  CornerRadius="8">
-            <Grid>
-              <Image Margin="10" Source="{Binding RectifiedPreview}" Stretch="Uniform" />
-              <Border Margin="10"
-                      Padding="7,3"
-                      HorizontalAlignment="Left"
-                      VerticalAlignment="Top"
-                      Background="#B312171D"
-                      CornerRadius="4">
-                <TextBlock FontSize="12" Text="Выпрямленная шкала" />
-              </Border>
-            </Grid>
-          </Border>
-
-          <Border Grid.Column="2"
-                  Background="{StaticResource PanelBackgroundBrush}"
-                  BorderBrush="{StaticResource PanelBorderBrush}"
-                  BorderThickness="1"
-                  CornerRadius="8">
-            <Grid>
-              <Image Margin="10" Source="{Binding MaskPreview}" Stretch="Uniform" />
-              <Border Margin="10"
-                      Padding="7,3"
-                      HorizontalAlignment="Left"
-                      VerticalAlignment="Top"
-                      Background="#B312171D"
-                      CornerRadius="4">
-                <TextBlock FontSize="12" Text="HSV-маска рамки" />
-              </Border>
-            </Grid>
-          </Border>
-        </Grid>
-      </Grid>
-
-      <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+      <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
         <StackPanel>
           <Border Padding="18" Background="{Binding AdviceBrush}" CornerRadius="8">
             <StackPanel>
@@ -237,6 +159,295 @@
                          TextWrapping="Wrap" />
             </StackPanel>
           </Border>
+
+        </StackPanel>
+      </ScrollViewer>
+
+      <Grid Grid.Column="2">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="2*" />
+          <RowDefinition Height="16" />
+          <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0"
+                Background="{StaticResource PanelBackgroundBrush}"
+                BorderBrush="{StaticResource PanelBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="8">
+          <Grid>
+            <Image x:Name="SourcePreviewImage"
+                   Margin="12"
+                   Source="{Binding SourcePreview}"
+                   Stretch="Uniform" />
+            <Canvas x:Name="AnnotationCanvas"
+                    Margin="12"
+                    Background="Transparent"
+                    IsHitTestVisible="False" />
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+              <TextBlock HorizontalAlignment="Center"
+                         FontSize="18"
+                         FontWeight="SemiBold"
+                         Text="{Binding PreviewTitle}" />
+              <TextBlock Margin="0,8,0,0"
+                         HorizontalAlignment="Center"
+                         Foreground="{StaticResource SecondaryTextBrush}"
+                         Text="{Binding PreviewHint}" />
+            </StackPanel>
+            <Border Margin="12"
+                    Padding="8,4"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Top"
+                    Background="#B312171D"
+                    CornerRadius="4">
+              <TextBlock FontSize="12" Text="Исходный кадр + найденная рамка" />
+            </Border>
+          </Grid>
+        </Border>
+
+        <Grid Grid.Row="2">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="12" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="12" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+
+          <Border Grid.Column="0"
+                  Background="{StaticResource PanelBackgroundBrush}"
+                  BorderBrush="{StaticResource PanelBorderBrush}"
+                  BorderThickness="1"
+                  CornerRadius="8">
+            <Grid>
+              <Image Margin="10" Source="{Binding RectifiedPreview}" Stretch="Uniform" />
+              <Border Margin="10"
+                      Padding="7,3"
+                      HorizontalAlignment="Left"
+                      VerticalAlignment="Top"
+                      Background="#B312171D"
+                      CornerRadius="4">
+                <TextBlock FontSize="12" Text="Выпрямленная шкала" />
+              </Border>
+            </Grid>
+          </Border>
+
+          <Border Grid.Column="2"
+                  Background="{StaticResource PanelBackgroundBrush}"
+                  BorderBrush="{StaticResource PanelBorderBrush}"
+                  BorderThickness="1"
+                  CornerRadius="8">
+            <Grid>
+              <Image Margin="10" Source="{Binding MaskPreview}" Stretch="Uniform" />
+              <Border Margin="10"
+                      Padding="7,3"
+                      HorizontalAlignment="Left"
+                      VerticalAlignment="Top"
+                      Background="#B312171D"
+                      CornerRadius="4">
+                <TextBlock FontSize="12" Text="HSV-маска рамки" />
+              </Border>
+            </Grid>
+          </Border>
+
+          <Border Grid.Column="4"
+                  Background="{StaticResource PanelBackgroundBrush}"
+                  BorderBrush="{StaticResource PanelBorderBrush}"
+                  BorderThickness="1"
+                  CornerRadius="8">
+            <Grid>
+              <Image Margin="10" Source="{Binding TrainingBoundsPreview}" Stretch="Uniform" />
+              <Border Margin="10"
+                      Padding="7,3"
+                      HorizontalAlignment="Left"
+                      VerticalAlignment="Top"
+                      Background="#B312171D"
+                      CornerRadius="4">
+                <TextBlock FontSize="12" Text="Training bounds (OBB)" />
+              </Border>
+            </Grid>
+          </Border>
+        </Grid>
+      </Grid>
+
+      <ScrollViewer Grid.Column="4" VerticalScrollBarVisibility="Auto">
+        <StackPanel>
+          <Border
+                  Padding="18"
+                  Background="{StaticResource PanelBackgroundBrush}"
+                  BorderBrush="{StaticResource PanelBorderBrush}"
+                  BorderThickness="1"
+                  CornerRadius="8">
+            <StackPanel>
+              <DockPanel>
+                <CheckBox x:Name="AnnotationModeCheckBox"
+                          DockPanel.Dock="Right"
+                          VerticalAlignment="Center"
+                          Checked="AnnotationMode_Changed"
+                          Content="Включён"
+                          Unchecked="AnnotationMode_Changed" />
+                <TextBlock FontSize="17" FontWeight="SemiBold" Text="OBB-разметка" />
+              </DockPanel>
+
+              <Button Margin="0,12,0,0"
+                      Style="{StaticResource AnnotationButtonStyle}"
+                      Click="ChooseDatasetFolder_Click"
+                      Content="Выбрать папку dataset" />
+              <TextBlock x:Name="DatasetPathText"
+                         Margin="0,6,0,0"
+                         FontSize="11"
+                         Foreground="{StaticResource SecondaryTextBrush}"
+                         Text="Папка не выбрана"
+                         TextTrimming="CharacterEllipsis" />
+
+              <DockPanel Margin="0,12,0,0">
+                <TextBlock VerticalAlignment="Center" Text="Split" />
+                <ComboBox x:Name="DatasetSplitComboBox"
+                          Width="140"
+                          Margin="12,0,0,0"
+                          Background="#F3F6F8"
+                          Foreground="#101419"
+                          HorizontalAlignment="Right"
+                          SelectionChanged="DatasetSplit_SelectionChanged"
+                          SelectedIndex="0">
+                  <ComboBoxItem Tag="Train">
+                    <TextBlock Foreground="#101419" Text="Train" />
+                  </ComboBoxItem>
+                  <ComboBoxItem Tag="Validation">
+                    <TextBlock Foreground="#101419" Text="Validation" />
+                  </ComboBoxItem>
+                  <ComboBoxItem Tag="Test">
+                    <TextBlock Foreground="#101419" Text="Test" />
+                  </ComboBoxItem>
+                </ComboBox>
+              </DockPanel>
+              <TextBlock Margin="0,5,0,0"
+                         FontSize="11"
+                         Foreground="{StaticResource SecondaryTextBrush}"
+                         Text="Одно исходное видео сохраняйте целиком в одном split."
+                         TextWrapping="Wrap" />
+
+              <Border Margin="0,10,0,0"
+                      Padding="10,7"
+                      Background="#202831"
+                      BorderBrush="{StaticResource PanelBorderBrush}"
+                      BorderThickness="1"
+                      CornerRadius="4">
+                <TextBlock x:Name="ExistingAnnotationText"
+                           Foreground="{StaticResource SecondaryTextBrush}"
+                           Text="Текущий кадр ещё не проверен."
+                           TextWrapping="Wrap" />
+              </Border>
+
+              <WrapPanel Margin="0,12,0,0">
+                <Button x:Name="AcceptAnnotationButton"
+                        Margin="0,0,8,8"
+                        Style="{StaticResource AnnotationButtonStyle}"
+                        Click="AcceptAnnotation_Click"
+                        Content="[Enter] Принять" />
+                <Button x:Name="CorrectAnnotationButton"
+                        Margin="0,0,8,8"
+                        Style="{StaticResource AnnotationButtonStyle}"
+                        Click="CorrectAnnotation_Click"
+                        Content="[E] Исправить" />
+                <Button x:Name="ManualAnnotationButton"
+                        Margin="0,0,8,8"
+                        Style="{StaticResource AnnotationButtonStyle}"
+                        Click="ManualAnnotation_Click"
+                        Content="[M] Вручную" />
+                <Button x:Name="NegativeAnnotationButton"
+                        Margin="0,0,8,8"
+                        Style="{StaticResource AnnotationButtonStyle}"
+                        Click="NegativeAnnotation_Click"
+                        Content="[N] Рамки нет" />
+                <Button x:Name="DeleteAnnotationButton"
+                        Margin="0,0,8,8"
+                        Style="{StaticResource AnnotationButtonStyle}"
+                        Click="DeleteAnnotation_Click"
+                        Content="[Delete] Удалить" />
+                <Button x:Name="SkipAnnotationButton"
+                        Margin="0,0,8,8"
+                        Style="{StaticResource AnnotationButtonStyle}"
+                        Click="SkipAnnotation_Click"
+                        Content="[S] Пропустить" />
+              </WrapPanel>
+
+              <TextBlock x:Name="AnnotationStatusText"
+                         Margin="0,4,0,0"
+                         Foreground="{StaticResource SecondaryTextBrush}"
+                         Text="Включите режим и выберите dataset."
+                         TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+
+          <Border Margin="0,14,0,0"
+                  Padding="18"
+                  Background="{StaticResource PanelBackgroundBrush}"
+                  BorderBrush="{StaticResource PanelBorderBrush}"
+                  BorderThickness="1"
+                  CornerRadius="8">
+            <StackPanel>
+              <DockPanel>
+                <Button DockPanel.Dock="Right"
+                        Margin="8,0,0,0"
+                        Padding="8,3"
+                        Click="ResetHsv_Click"
+                        Content="Сбросить" />
+                <TextBlock VerticalAlignment="Center"
+                           FontSize="17"
+                           FontWeight="SemiBold"
+                           Text="HSV Lab" />
+              </DockPanel>
+              <TextBlock Margin="0,8,0,0"
+                         Foreground="{StaticResource SecondaryTextBrush}"
+                         Text="Маска обновляется автоматически. OpenCV: H 0–179, S/V 0–255."
+                         TextWrapping="Wrap" />
+
+              <DockPanel Margin="0,12,0,0">
+                <TextBlock DockPanel.Dock="Right" Text="{Binding MinimumHue, StringFormat=F0}" />
+                <TextBlock Text="Hue min" />
+              </DockPanel>
+              <Slider Minimum="0"
+                      Maximum="178"
+                      IsSnapToTickEnabled="True"
+                      TickFrequency="1"
+                      Value="{Binding MinimumHue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                      ValueChanged="HsvSlider_ValueChanged" />
+
+              <DockPanel Margin="0,8,0,0">
+                <TextBlock DockPanel.Dock="Right" Text="{Binding MaximumHue, StringFormat=F0}" />
+                <TextBlock Text="Hue max" />
+              </DockPanel>
+              <Slider Minimum="1"
+                      Maximum="179"
+                      IsSnapToTickEnabled="True"
+                      TickFrequency="1"
+                      Value="{Binding MaximumHue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                      ValueChanged="HsvSlider_ValueChanged" />
+
+              <DockPanel Margin="0,8,0,0">
+                <TextBlock DockPanel.Dock="Right" Text="{Binding MinimumSaturation, StringFormat=F0}" />
+                <TextBlock Text="Saturation min" />
+              </DockPanel>
+              <Slider Minimum="0"
+                      Maximum="255"
+                      IsSnapToTickEnabled="True"
+                      TickFrequency="1"
+                      Value="{Binding MinimumSaturation, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                      ValueChanged="HsvSlider_ValueChanged" />
+
+              <DockPanel Margin="0,8,0,0">
+                <TextBlock DockPanel.Dock="Right" Text="{Binding MinimumValue, StringFormat=F0}" />
+                <TextBlock Text="Value min" />
+              </DockPanel>
+              <Slider Minimum="0"
+                      Maximum="255"
+                      IsSnapToTickEnabled="True"
+                      TickFrequency="1"
+                      Value="{Binding MinimumValue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                      ValueChanged="HsvSlider_ValueChanged" />
+            </StackPanel>
+          </Border>
         </StackPanel>
       </ScrollViewer>
     </Grid>
@@ -248,6 +459,10 @@
             BorderThickness="1"
             CornerRadius="8">
       <Grid>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto" />
           <ColumnDefinition Width="16" />
@@ -258,15 +473,29 @@
           <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
 
-        <StackPanel Orientation="Horizontal">
-          <Button Click="PreviousTen_Click" IsEnabled="{Binding CanNavigate}" Content="◀ 10" />
+        <TextBlock Grid.Row="0"
+                   Grid.ColumnSpan="7"
+                   Margin="0,0,0,8"
+                   HorizontalAlignment="Center"
+                   Foreground="{StaticResource SecondaryTextBrush}"
+                   Text="OBB: Enter принять · E исправить · M вручную · N рамки нет · Delete удалить · S пропустить · ←/→ кадр · Shift+←/→ 1 с" />
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal">
+          <Button Click="PreviousSecond_Click"
+                  IsEnabled="{Binding CanNavigate}"
+                  Content="◀ 1 с"
+                  ToolTip="Назад на одну секунду" />
           <Button Click="PreviousFrame_Click" IsEnabled="{Binding CanNavigate}" Content="◀" />
           <Button Click="PlayPause_Click" IsEnabled="{Binding CanNavigate}" Content="{Binding PlayPauseText}" />
           <Button Click="NextFrame_Click" IsEnabled="{Binding CanNavigate}" Content="▶" />
-          <Button Click="NextTen_Click" IsEnabled="{Binding CanNavigate}" Content="10 ▶" />
+          <Button Click="NextSecond_Click"
+                  IsEnabled="{Binding CanNavigate}"
+                  Content="1 с ▶"
+                  ToolTip="Вперёд на одну секунду" />
         </StackPanel>
 
         <Slider x:Name="TimelineSlider"
+                Grid.Row="1"
                 Grid.Column="2"
                 IsEnabled="{Binding CanNavigate}"
                 IsMoveToPointEnabled="True"
@@ -274,11 +503,19 @@
                 Minimum="0"
                 PreviewMouseLeftButtonUp="Timeline_PreviewMouseLeftButtonUp"
                 Value="{Binding TimelineValue, Mode=OneWay}" />
-        <TextBlock Grid.Column="4"
-                   VerticalAlignment="Center"
-                   Foreground="{StaticResource SecondaryTextBrush}"
-                   Text="{Binding VideoPosition}" />
+        <StackPanel Grid.Row="1" Grid.Column="4" VerticalAlignment="Center">
+          <TextBlock HorizontalAlignment="Right" Foreground="{StaticResource PrimaryTextBrush}">
+            <Run Text="Кадр " />
+            <Run Text="{Binding FramePosition, Mode=OneWay}" />
+          </TextBlock>
+          <TextBlock Margin="0,2,0,0"
+                     HorizontalAlignment="Right"
+                     FontSize="11"
+                     Foreground="{StaticResource SecondaryTextBrush}"
+                     Text="{Binding VideoPosition}" />
+        </StackPanel>
         <Button Grid.Column="6"
+                Grid.Row="1"
                 Width="76"
                 Margin="0"
                 Click="PlaybackSpeed_Click"

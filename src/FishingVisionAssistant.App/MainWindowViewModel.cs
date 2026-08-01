@@ -28,6 +28,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string _videoPosition = "—";
     private string _playbackSpeedText = "1×";
     private double _panelConfidence;
+    private double _minimumHue = 115;
+    private double _maximumHue = 145;
+    private double _minimumSaturation = 141;
+    private double _minimumValue = 59;
     private double _timelineMaximum = 1;
     private double _timelineValue;
     private bool _isVideoLoaded;
@@ -36,6 +40,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private BitmapSource? _sourcePreview;
     private BitmapSource? _rectifiedPreview;
     private BitmapSource? _maskPreview;
+    private BitmapSource? _trainingBoundsPreview;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -93,6 +98,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         private set => SetField(ref _maskPreview, value);
     }
 
+    public BitmapSource? TrainingBoundsPreview
+    {
+        get => _trainingBoundsPreview;
+        private set => SetField(ref _trainingBoundsPreview, value);
+    }
+
     public double PanelConfidence
     {
         get => _panelConfidence;
@@ -106,6 +117,30 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     }
 
     public string PanelConfidenceText => PanelConfidence.ToString("P0");
+
+    public double MinimumHue
+    {
+        get => _minimumHue;
+        set => SetField(ref _minimumHue, Math.Clamp(Math.Round(value), 0, MaximumHue - 1));
+    }
+
+    public double MaximumHue
+    {
+        get => _maximumHue;
+        set => SetField(ref _maximumHue, Math.Clamp(Math.Round(value), MinimumHue + 1, 179));
+    }
+
+    public double MinimumSaturation
+    {
+        get => _minimumSaturation;
+        set => SetField(ref _minimumSaturation, Math.Clamp(Math.Round(value), 0, 255));
+    }
+
+    public double MinimumValue
+    {
+        get => _minimumValue;
+        set => SetField(ref _minimumValue, Math.Clamp(Math.Round(value), 0, 255));
+    }
 
     public double WhiteZoneConfidence => 0;
 
@@ -296,6 +331,25 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     public void SetPlaybackSpeed(double speed) => PlaybackSpeedText = $"{speed:0.##}×";
 
+    public PanelDetectorOptions CreatePanelDetectorOptions() => new()
+    {
+        MinimumHue = (int)MinimumHue,
+        MaximumHue = (int)MaximumHue,
+        MinimumSaturation = (int)MinimumSaturation,
+        MinimumValue = (int)MinimumValue
+    };
+
+    public void ResetHsv()
+    {
+        MinimumHue = 115;
+        MaximumHue = 145;
+        MinimumSaturation = 141;
+        MinimumValue = 59;
+    }
+
+    public void SetTrainingBoundsPreview(byte[]? encodedPreview) =>
+        TrainingBoundsPreview = encodedPreview is null ? null : DecodeImage(encodedPreview);
+
     public void ApplyAnalysisError(string message)
     {
         SourceStatus = "Ошибка анализа";
@@ -305,6 +359,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         PanelConfidence = 0;
         RectifiedPreview = null;
         MaskPreview = null;
+        TrainingBoundsPreview = null;
         PipelineLatency = "—";
         CacheStatus = "ошибка";
         IsBusy = false;
@@ -327,6 +382,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         SourcePreview = null;
         RectifiedPreview = null;
         MaskPreview = null;
+        TrainingBoundsPreview = null;
         PipelineLatency = "—";
         PipelineFps = "—";
         PerformanceSummary = "Нет измерений";
