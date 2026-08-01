@@ -28,6 +28,28 @@ public sealed class PanelDetector : IPanelDetector
             throw new ArgumentException("Изображение не удалось декодировать.", nameof(encodedImage));
         }
 
+        return Detect(source, stopwatch);
+    }
+
+    /// <inheritdoc />
+    public PanelDetectionResult DetectBgr24(byte[] pixels, int width, int height, int stride)
+    {
+        ArgumentNullException.ThrowIfNull(pixels);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
+        ArgumentOutOfRangeException.ThrowIfLessThan(stride, checked(width * 3));
+        if (pixels.Length < checked(stride * height))
+        {
+            throw new ArgumentException("Pixel buffer меньше заявленной геометрии кадра.", nameof(pixels));
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        using var source = Mat.FromPixelData(height, width, MatType.CV_8UC3, pixels, stride);
+        return Detect(source, stopwatch);
+    }
+
+    private PanelDetectionResult Detect(Mat source, Stopwatch stopwatch)
+    {
         using var overlay = source.Clone();
         using var mask = CreateColorMask(source);
         var candidate = FindBestCandidate(mask, source.Size());

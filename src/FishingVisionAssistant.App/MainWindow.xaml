@@ -10,6 +10,7 @@
         MinWidth="1080"
         MinHeight="700"
         Background="{StaticResource WindowBackgroundBrush}"
+        PreviewKeyDown="MainWindow_PreviewKeyDown"
         WindowStartupLocation="CenterScreen">
   <Grid Margin="20">
     <Grid.RowDefinitions>
@@ -203,25 +204,33 @@
                   BorderBrush="{StaticResource PanelBorderBrush}"
                   BorderThickness="1"
                   CornerRadius="8">
-            <Grid>
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-              </Grid.ColumnDefinitions>
-              <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="8" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="8" />
-                <RowDefinition Height="Auto" />
-              </Grid.RowDefinitions>
-              <TextBlock Grid.Row="0" Text="Кадр" />
-              <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding FramePosition}" />
-              <TextBlock Grid.Row="2" Text="Pipeline FPS" />
-              <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding PipelineFps}" />
-              <TextBlock Grid.Row="4" Text="Задержка" />
-              <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding PipelineLatency}" />
-            </Grid>
+            <StackPanel>
+              <TextBlock FontSize="17" FontWeight="SemiBold" Text="Frame Inspector" />
+              <DockPanel Margin="0,12,0,0">
+                <TextBlock Text="Кадр" />
+                <TextBlock HorizontalAlignment="Right" Text="{Binding FramePosition}" />
+              </DockPanel>
+              <DockPanel Margin="0,8,0,0">
+                <TextBlock Text="Позиция" />
+                <TextBlock HorizontalAlignment="Right" Text="{Binding VideoPosition}" />
+              </DockPanel>
+              <DockPanel Margin="0,8,0,0">
+                <TextBlock Text="Pipeline FPS" />
+                <TextBlock HorizontalAlignment="Right" Text="{Binding PipelineFps}" />
+              </DockPanel>
+              <DockPanel Margin="0,8,0,0">
+                <TextBlock Text="Текущая latency" />
+                <TextBlock HorizontalAlignment="Right" Text="{Binding PipelineLatency}" />
+              </DockPanel>
+              <DockPanel Margin="0,8,0,0">
+                <TextBlock Text="Источник результата" />
+                <TextBlock HorizontalAlignment="Right" Text="{Binding CacheStatus}" />
+              </DockPanel>
+              <TextBlock Margin="0,12,0,0"
+                         Foreground="{StaticResource SecondaryTextBrush}"
+                         Text="{Binding PerformanceSummary}"
+                         TextWrapping="Wrap" />
+            </StackPanel>
           </Border>
         </StackPanel>
       </ScrollViewer>
@@ -240,20 +249,41 @@
           <ColumnDefinition Width="*" />
           <ColumnDefinition Width="16" />
           <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="16" />
+          <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
 
         <StackPanel Orientation="Horizontal">
-          <Button IsEnabled="False" Content="◀ 10" />
-          <Button IsEnabled="False" Content="◀" />
-          <Button IsEnabled="False" Content="▶" />
-          <Button IsEnabled="False" Content="10 ▶" />
+          <Button Click="PreviousTen_Click" IsEnabled="{Binding CanNavigate}" Content="◀ 10" />
+          <Button Click="PreviousFrame_Click" IsEnabled="{Binding CanNavigate}" Content="◀" />
+          <Button Click="PlayPause_Click" IsEnabled="{Binding CanNavigate}" Content="{Binding PlayPauseText}" />
+          <Button Click="NextFrame_Click" IsEnabled="{Binding CanNavigate}" Content="▶" />
+          <Button Click="NextTen_Click" IsEnabled="{Binding CanNavigate}" Content="10 ▶" />
         </StackPanel>
 
-        <Slider Grid.Column="2" IsEnabled="False" Minimum="0" Maximum="1" Value="0" />
+        <Slider x:Name="TimelineSlider"
+                Grid.Column="2"
+                IsEnabled="{Binding CanNavigate}"
+                IsMoveToPointEnabled="True"
+                Maximum="{Binding TimelineMaximum}"
+                Minimum="0"
+                PreviewMouseLeftButtonUp="Timeline_PreviewMouseLeftButtonUp"
+                Value="{Binding TimelineValue, Mode=OneWay}" />
         <TextBlock Grid.Column="4"
                    VerticalAlignment="Center"
                    Foreground="{StaticResource SecondaryTextBrush}"
-                   Text="Покадровый decoder будет подключён на следующем этапе" />
+                   Text="{Binding VideoPosition}" />
+        <ComboBox Grid.Column="6"
+                  Width="76"
+                  Padding="6,4"
+                  SelectedIndex="2"
+                  SelectionChanged="PlaybackSpeed_SelectionChanged">
+          <ComboBoxItem Tag="0.25" Content="0.25×" />
+          <ComboBoxItem Tag="0.5" Content="0.5×" />
+          <ComboBoxItem Tag="1" Content="1×" />
+          <ComboBoxItem Tag="1.5" Content="1.5×" />
+          <ComboBoxItem Tag="2" Content="2×" />
+        </ComboBox>
       </Grid>
     </Border>
   </Grid>

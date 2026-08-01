@@ -41,8 +41,12 @@ dotnet build FishingVrChat.sln
 Каркас содержит:
 
 - диагностическое окно и загрузку статического изображения;
+- покадровый Frame Inspector для локальных видео с play/pause, timeline, seek и скоростью воспроизведения;
 - первый OpenCV `PanelDetector` по HSV-маске и геометрии;
 - overlay найденной рамки, preview маски и нормализацию `96 × 640` через perspective transform;
+- LRU-кэш последних результатов и показатели cold start, median и p95;
 - контракты кадров и начальный безопасный controller.
 
-Обработка видео, поиск белой зоны и значка рыбы, tracking и live capture будут подключаться следующими этапами.
+Горячие клавиши Frame Inspector: `Space` — play/pause, `←`/`→` — один кадр, `Shift+←`/`Shift+→` — десять кадров.
+
+Поиск белой зоны и значка рыбы, tracking и live capture будут подключаться следующими этапами.

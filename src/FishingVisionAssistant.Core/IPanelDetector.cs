@@ -9,4 +9,9 @@ public interface IPanelDetector
     /// Анализирует PNG, JPEG или BMP и возвращает найденную геометрию с preview-изображениями.
     /// </summary>
     PanelDetectionResult Detect(ReadOnlyMemory<byte> encodedImage);
+
+    /// <summary>
+    /// Анализирует декодированный BGR24-кадр без промежуточного PNG или JPEG.
+    /// </summary>
+    PanelDetectionResult DetectBgr24(byte[] pixels, int width, int height, int stride);
 }
