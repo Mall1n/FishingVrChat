@@ -52,7 +52,7 @@ dotnet build FishingVrChat.sln
 - LRU-кэш последних результатов и показатели cold start, median и p95;
 - контракты кадров и начальный безопасный controller.
 
-Горячие клавиши Frame Inspector: `Space` — play/pause, `←`/`→` — один кадр, `Shift+←`/`Shift+→` — одна секунда.
+Горячие клавиши Frame Inspector: `Space` — play/pause, `←`/`→` — одна секунда, `Shift+←`/`Shift+→` — один кадр.
 
 Горячие клавиши OBB-разметки:
 

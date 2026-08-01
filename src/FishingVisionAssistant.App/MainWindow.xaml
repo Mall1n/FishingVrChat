@@ -478,7 +478,7 @@
                    Margin="0,0,0,8"
                    HorizontalAlignment="Center"
                    Foreground="{StaticResource SecondaryTextBrush}"
-                   Text="OBB: Enter принять · E исправить · M вручную · N рамки нет · Delete удалить · S пропустить · ←/→ кадр · Shift+←/→ 1 с" />
+                   Text="OBB: Enter принять · E исправить · M вручную · N рамки нет · Delete удалить · S пропустить · ←/→ 1 с · Shift+←/→ кадр" />
 
         <StackPanel Grid.Row="1" Orientation="Horizontal">
           <Button Click="PreviousSecond_Click"

@@ -329,12 +329,12 @@ public partial class MainWindow : Window
                 break;
             case Key.Left:
                 await NavigateRelativeAsync(
-                    Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? -GetSecondFrameOffset() : -1);
+                    Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? -1 : -GetSecondFrameOffset());
                 e.Handled = true;
                 break;
             case Key.Right:
                 await NavigateRelativeAsync(
-                    Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? GetSecondFrameOffset() : 1);
+                    Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? 1 : GetSecondFrameOffset());
                 e.Handled = true;
                 break;
         }
