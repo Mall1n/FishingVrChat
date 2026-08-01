@@ -5,7 +5,7 @@ using System.Windows;
 namespace FishingVisionAssistant.App;
 
 /// <summary>
-/// Interaction logic for App.xaml
+/// Запускает WPF-оболочку визуального анализатора.
 /// </summary>
 public partial class App : Application
 {

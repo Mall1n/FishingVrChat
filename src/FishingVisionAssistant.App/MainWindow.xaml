@@ -90,12 +90,17 @@
                   BorderBrush="{StaticResource PanelBorderBrush}"
                   BorderThickness="1"
                   CornerRadius="8">
-            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-              <TextBlock FontWeight="SemiBold" Text="Выпрямленная шкала" />
-              <TextBlock Margin="0,6,0,0"
-                         Foreground="{StaticResource SecondaryTextBrush}"
-                         Text="Perspective correction" />
-            </StackPanel>
+            <Grid>
+              <Image Margin="10" Source="{Binding RectifiedPreview}" Stretch="Uniform" />
+              <Border Margin="10"
+                      Padding="7,3"
+                      HorizontalAlignment="Left"
+                      VerticalAlignment="Top"
+                      Background="#B312171D"
+                      CornerRadius="4">
+                <TextBlock FontSize="12" Text="Выпрямленная шкала" />
+              </Border>
+            </Grid>
           </Border>
 
           <Border Grid.Column="2"
@@ -103,12 +108,17 @@
                   BorderBrush="{StaticResource PanelBorderBrush}"
                   BorderThickness="1"
                   CornerRadius="8">
-            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-              <TextBlock FontWeight="SemiBold" Text="Диагностические маски" />
-              <TextBlock Margin="0,6,0,0"
-                         Foreground="{StaticResource SecondaryTextBrush}"
-                         Text="Белая зона и значок рыбы" />
-            </StackPanel>
+            <Grid>
+              <Image Margin="10" Source="{Binding MaskPreview}" Stretch="Uniform" />
+              <Border Margin="10"
+                      Padding="7,3"
+                      HorizontalAlignment="Left"
+                      VerticalAlignment="Top"
+                      Background="#B312171D"
+                      CornerRadius="4">
+                <TextBlock FontSize="12" Text="HSV-маска рамки" />
+              </Border>
+            </Grid>
           </Border>
         </Grid>
       </Grid>
@@ -163,6 +173,11 @@
                          FontSize="12"
                          Foreground="{StaticResource SecondaryTextBrush}"
                          Text="{Binding PanelConfidenceText}" />
+              <TextBlock Margin="0,8,0,0"
+                         FontSize="12"
+                         Foreground="{StaticResource SecondaryTextBrush}"
+                         Text="{Binding PanelReason}"
+                         TextWrapping="Wrap" />
 
               <TextBlock Margin="0,12,0,5" Text="Белая зона" />
               <ProgressBar Maximum="1" Value="{Binding WhiteZoneConfidence, Mode=OneWay}" />

@@ -1,6 +1,6 @@
 using System.IO;
 using System.Windows;
-using System.Windows.Media.Imaging;
+using FishingVisionAssistant.Core;
 using Microsoft.Win32;
 
 namespace FishingVisionAssistant.App;
@@ -10,6 +10,7 @@ namespace FishingVisionAssistant.App;
 /// </summary>
 public partial class MainWindow : Window
 {
+    private readonly IPanelDetector _panelDetector = new PanelDetector();
     private readonly MainWindowViewModel _viewModel = new();
 
     public MainWindow()
@@ -18,7 +19,7 @@ public partial class MainWindow : Window
         DataContext = _viewModel;
     }
 
-    private void OpenRecording_Click(object sender, RoutedEventArgs e)
+    private async void OpenRecording_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFileDialog
         {
@@ -31,38 +32,37 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!IsImage(dialog.FileName))
+        {
+            _viewModel.SelectVideoSource(dialog.FileName);
+            return;
+        }
+
         try
         {
-            _viewModel.SelectOfflineSource(dialog.FileName, TryLoadImage(dialog.FileName));
+            _viewModel.BeginImageAnalysis(dialog.FileName);
+            var encodedImage = await File.ReadAllBytesAsync(dialog.FileName);
+            var result = await Task.Run(() => _panelDetector.Detect(encodedImage));
+            _viewModel.ApplyPanelDetection(dialog.FileName, result);
         }
         catch (Exception exception)
         {
+            _viewModel.ApplyAnalysisError(exception.Message);
             MessageBox.Show(
                 this,
-                $"Не удалось открыть файл: {exception.Message}",
-                "Ошибка открытия",
+                $"Не удалось проанализировать файл: {exception.Message}",
+                "Ошибка анализа",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
         }
     }
 
-    private static BitmapImage? TryLoadImage(string path)
+    private static bool IsImage(string path)
     {
         var extension = Path.GetExtension(path);
-        if (!extension.Equals(".png", StringComparison.OrdinalIgnoreCase) &&
-            !extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase) &&
-            !extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase) &&
-            !extension.Equals(".bmp", StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
-
-        var image = new BitmapImage();
-        image.BeginInit();
-        image.CacheOption = BitmapCacheOption.OnLoad;
-        image.UriSource = new Uri(path, UriKind.Absolute);
-        image.EndInit();
-        image.Freeze();
-        return image;
+        return extension.Equals(".png", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".bmp", StringComparison.OrdinalIgnoreCase);
     }
 }
