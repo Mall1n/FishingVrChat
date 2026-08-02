@@ -26,6 +26,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string _queueWaitLatency = "—";
     private string _inputLatencyLabel = "Decode";
     private string _preprocessLatency = "—";
+    private string _colorConversionLatency = "—";
+    private string _letterboxLatency = "—";
+    private string _tensorCreationLatency = "—";
     private string _inferenceLatency = "—";
     private string _postprocessLatency = "—";
     private string _pipelineFps = "—";
@@ -199,6 +202,24 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     {
         get => _preprocessLatency;
         private set => SetField(ref _preprocessLatency, value);
+    }
+
+    public string ColorConversionLatency
+    {
+        get => _colorConversionLatency;
+        private set => SetField(ref _colorConversionLatency, value);
+    }
+
+    public string LetterboxLatency
+    {
+        get => _letterboxLatency;
+        private set => SetField(ref _letterboxLatency, value);
+    }
+
+    public string TensorCreationLatency
+    {
+        get => _tensorCreationLatency;
+        private set => SetField(ref _tensorCreationLatency, value);
     }
 
     public string InferenceLatency
@@ -380,6 +401,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         }
 
         PreprocessLatency = FormatLatency(result.Timings?.Preprocess);
+        ColorConversionLatency = FormatLatency(result.Timings?.ColorConversion);
+        LetterboxLatency = FormatLatency(result.Timings?.Letterbox);
+        TensorCreationLatency = FormatLatency(result.Timings?.TensorCreation);
         InferenceLatency = FormatLatency(result.Timings?.Inference);
         PostprocessLatency = FormatLatency(result.Timings?.Postprocess);
         PipelineLatency = FormatLatency(analysis.EndToEndTime);
@@ -453,8 +477,17 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         if (analysis.IsFromCache)
         {
             PreprocessLatency = "кэш";
+            ColorConversionLatency = "кэш";
+            LetterboxLatency = "кэш";
+            TensorCreationLatency = "кэш";
             InferenceLatency = "кэш";
             PostprocessLatency = "кэш";
+        }
+        else
+        {
+            ColorConversionLatency = FormatLatency(analysis.PanelDetection.Timings?.ColorConversion);
+            LetterboxLatency = FormatLatency(analysis.PanelDetection.Timings?.Letterbox);
+            TensorCreationLatency = FormatLatency(analysis.PanelDetection.Timings?.TensorCreation);
         }
         PipelineFps = performance.SampleCount == 0 ? "—" : $"{performance.FramesPerSecond:F1}";
         PerformanceSummary = performance.SampleCount == 0
@@ -510,6 +543,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         MaskPreview = DecodeImage(result.MaskPng);
         RectifiedPreview = result.RectifiedPanelPng is null ? null : DecodeImage(result.RectifiedPanelPng);
         PreprocessLatency = FormatLatency(result.Timings?.Preprocess);
+        ColorConversionLatency = FormatLatency(result.Timings?.ColorConversion);
+        LetterboxLatency = FormatLatency(result.Timings?.Letterbox);
+        TensorCreationLatency = FormatLatency(result.Timings?.TensorCreation);
         InferenceLatency = FormatLatency(result.Timings?.Inference);
         PostprocessLatency = FormatLatency(result.Timings?.Postprocess);
     }
@@ -605,6 +641,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         DecodeLatency = "—";
         QueueWaitLatency = "—";
         PreprocessLatency = "—";
+        ColorConversionLatency = "—";
+        LetterboxLatency = "—";
+        TensorCreationLatency = "—";
         InferenceLatency = "—";
         PostprocessLatency = "—";
     }

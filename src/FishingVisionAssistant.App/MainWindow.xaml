@@ -177,6 +177,21 @@
                 <TextBlock Text="Preprocess" />
                 <TextBlock HorizontalAlignment="Right" Text="{Binding PreprocessLatency}" />
               </DockPanel>
+              <DockPanel Margin="0,6,0,0"
+                         ToolTip="Преобразование захваченного BGRA32 кадра в BGR24 для OpenCV. Для offline-кадра уже используется BGR24.">
+                <TextBlock Text="  BGRA → BGR" />
+                <TextBlock HorizontalAlignment="Right" Text="{Binding ColorConversionLatency}" />
+              </DockPanel>
+              <DockPanel Margin="0,6,0,0"
+                         ToolTip="Изменение размера исходного кадра и добавление полей до размера входа YOLO.">
+                <TextBlock Text="  Letterbox" />
+                <TextBlock HorizontalAlignment="Right" Text="{Binding LetterboxLatency}" />
+              </DockPanel>
+              <DockPanel Margin="0,6,0,0"
+                         ToolTip="RGB-нормализация, перестановка каналов и копирование данных в ONNX tensor.">
+                <TextBlock Text="  Tensor" />
+                <TextBlock HorizontalAlignment="Right" Text="{Binding TensorCreationLatency}" />
+              </DockPanel>
               <DockPanel Margin="0,8,0,0"
                          ToolTip="Выполнение нейросети внутри ONNX Runtime: вызов InferenceSession.Run без подготовки и разбора результата.">
                 <TextBlock Text="Inference" />

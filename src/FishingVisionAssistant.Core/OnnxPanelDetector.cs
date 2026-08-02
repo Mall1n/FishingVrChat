@@ -65,7 +65,7 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
             throw new ArgumentException("Изображение не удалось декодировать.", nameof(encodedImage));
         }
 
-        return Detect(source, stopwatch, PanelPreviewOutputs.All);
+        return Detect(source, stopwatch, PanelPreviewOutputs.All, TimeSpan.Zero);
     }
 
     /// <inheritdoc />
@@ -88,7 +88,7 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
 
         var stopwatch = Stopwatch.StartNew();
         using var source = Mat.FromPixelData(height, width, MatType.CV_8UC3, pixels, stride);
-        return Detect(source, stopwatch, previewOutputs);
+        return Detect(source, stopwatch, previewOutputs, TimeSpan.Zero);
     }
 
     /// <inheritdoc />
@@ -112,8 +112,10 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
         var stopwatch = Stopwatch.StartNew();
         using var bgra = Mat.FromPixelData(height, width, MatType.CV_8UC4, pixels, stride);
         using var source = new Mat();
+        var conversionStopwatch = Stopwatch.StartNew();
         Cv2.CvtColor(bgra, source, ColorConversionCodes.BGRA2BGR);
-        return Detect(source, stopwatch, previewOutputs);
+        conversionStopwatch.Stop();
+        return Detect(source, stopwatch, previewOutputs, conversionStopwatch.Elapsed);
     }
 
     /// <inheritdoc />
@@ -131,13 +133,19 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
     private PanelDetectionResult Detect(
         Mat source,
         Stopwatch stopwatch,
-        PanelPreviewOutputs previewOutputs)
+        PanelPreviewOutputs previewOutputs,
+        TimeSpan colorConversionTime)
     {
         var phaseStopwatch = Stopwatch.StartNew();
         using var networkInput = CreateLetterbox(source, out var transform);
+        phaseStopwatch.Stop();
+        var letterboxTime = phaseStopwatch.Elapsed;
+
+        phaseStopwatch.Restart();
         var inputTensor = CreateInputTensor(networkInput);
         phaseStopwatch.Stop();
-        var preprocessTime = phaseStopwatch.Elapsed;
+        var tensorCreationTime = phaseStopwatch.Elapsed;
+        var preprocessTime = colorConversionTime + letterboxTime + tensorCreationTime;
 
         phaseStopwatch.Restart();
         using var outputs = RunInference(inputTensor);
@@ -198,7 +206,13 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
                 notFoundDiagnosticPng,
                 null,
                 stopwatch.Elapsed,
-                new PanelDetectionTimings(preprocessTime, inferenceTime, phaseStopwatch.Elapsed));
+                new PanelDetectionTimings(
+                    preprocessTime,
+                    colorConversionTime,
+                    letterboxTime,
+                    tensorCreationTime,
+                    inferenceTime,
+                    phaseStopwatch.Elapsed));
         }
 
         var inputCorners = CreateCorners(accepted);
@@ -243,7 +257,13 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
             diagnosticPng,
             rectifiedPng,
             stopwatch.Elapsed,
-            new PanelDetectionTimings(preprocessTime, inferenceTime, phaseStopwatch.Elapsed));
+            new PanelDetectionTimings(
+                preprocessTime,
+                colorConversionTime,
+                letterboxTime,
+                tensorCreationTime,
+                inferenceTime,
+                phaseStopwatch.Elapsed));
     }
 
     private DenseTensor<float> CreateInputTensor(Mat networkInput)
