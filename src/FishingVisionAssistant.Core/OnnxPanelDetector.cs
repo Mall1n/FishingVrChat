@@ -65,7 +65,7 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
             throw new ArgumentException("Изображение не удалось декодировать.", nameof(encodedImage));
         }
 
-        return Detect(source, stopwatch, includeDiagnostics: true);
+        return Detect(source, stopwatch, PanelPreviewOutputs.All);
     }
 
     /// <inheritdoc />
@@ -74,7 +74,7 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
         int width,
         int height,
         int stride,
-        bool includeDiagnostics = true)
+        PanelPreviewOutputs previewOutputs = PanelPreviewOutputs.All)
     {
         ObjectDisposedException.ThrowIf(_isDisposed, this);
         ArgumentNullException.ThrowIfNull(pixels);
@@ -88,7 +88,7 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
 
         var stopwatch = Stopwatch.StartNew();
         using var source = Mat.FromPixelData(height, width, MatType.CV_8UC3, pixels, stride);
-        return Detect(source, stopwatch, includeDiagnostics);
+        return Detect(source, stopwatch, previewOutputs);
     }
 
     /// <inheritdoc />
@@ -97,7 +97,7 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
         int width,
         int height,
         int stride,
-        bool includeDiagnostics = true)
+        PanelPreviewOutputs previewOutputs = PanelPreviewOutputs.All)
     {
         ObjectDisposedException.ThrowIf(_isDisposed, this);
         ArgumentNullException.ThrowIfNull(pixels);
@@ -113,7 +113,7 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
         using var bgra = Mat.FromPixelData(height, width, MatType.CV_8UC4, pixels, stride);
         using var source = new Mat();
         Cv2.CvtColor(bgra, source, ColorConversionCodes.BGRA2BGR);
-        return Detect(source, stopwatch, includeDiagnostics);
+        return Detect(source, stopwatch, previewOutputs);
     }
 
     /// <inheritdoc />
@@ -128,7 +128,10 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
         _isDisposed = true;
     }
 
-    private PanelDetectionResult Detect(Mat source, Stopwatch stopwatch, bool includeDiagnostics)
+    private PanelDetectionResult Detect(
+        Mat source,
+        Stopwatch stopwatch,
+        PanelPreviewOutputs previewOutputs)
     {
         var phaseStopwatch = Stopwatch.StartNew();
         using var networkInput = CreateLetterbox(source, out var transform);
@@ -162,11 +165,9 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
                   $"≥ {_options.MinimumConfidence:P0} и ≥ {_options.MinimumAspectRatio:F1}.";
             var notFoundOverlayPng = Array.Empty<byte>();
             var notFoundDiagnosticPng = Array.Empty<byte>();
-            if (includeDiagnostics)
+            if (previewOutputs.HasFlag(PanelPreviewOutputs.SourceOverlay))
             {
                 using var overlay = source.Clone();
-                using var diagnostic = networkInput.Clone();
-                DrawDiagnosticCandidates(diagnostic, validPredictions, accepted);
                 Cv2.PutText(
                     overlay,
                     "ONNX: panel not found",
@@ -177,6 +178,12 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
                     2,
                     LineTypes.AntiAlias);
                 notFoundOverlayPng = EncodePng(overlay);
+            }
+
+            if (previewOutputs.HasFlag(PanelPreviewOutputs.OnnxDiagnostic))
+            {
+                using var diagnostic = networkInput.Clone();
+                DrawDiagnosticCandidates(diagnostic, validPredictions, accepted);
                 notFoundDiagnosticPng = EncodePng(diagnostic);
             }
 
@@ -201,15 +208,23 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
         var overlayPng = Array.Empty<byte>();
         var diagnosticPng = Array.Empty<byte>();
         byte[]? rectifiedPng = null;
-        if (includeDiagnostics)
+        if (previewOutputs.HasFlag(PanelPreviewOutputs.SourceOverlay))
         {
             using var overlay = source.Clone();
+            DrawAcceptedOverlay(overlay, sourceCorners, accepted);
+            overlayPng = EncodePng(overlay);
+        }
+
+        if (previewOutputs.HasFlag(PanelPreviewOutputs.OnnxDiagnostic))
+        {
             using var diagnostic = networkInput.Clone();
             DrawDiagnosticCandidates(diagnostic, validPredictions, accepted);
-            DrawAcceptedOverlay(overlay, sourceCorners, accepted);
-            using var rectified = Rectify(source, sourceCorners, accepted.Width >= accepted.Height);
-            overlayPng = EncodePng(overlay);
             diagnosticPng = EncodePng(diagnostic);
+        }
+
+        if (previewOutputs.HasFlag(PanelPreviewOutputs.RectifiedPanel))
+        {
+            using var rectified = Rectify(source, sourceCorners, accepted.Width >= accepted.Height);
             rectifiedPng = EncodePng(rectified);
         }
 

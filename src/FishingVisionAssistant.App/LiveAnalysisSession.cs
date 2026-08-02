@@ -14,7 +14,7 @@ public sealed class LiveAnalysisSession : IAsyncDisposable
     private readonly CancellationTokenSource _cancellation = new();
     private LivePreviewSettings _previewSettings;
     private Task? _processingTask;
-    private int _forceDiagnosticFrame = 1;
+    private int _forcePreviewFrame = 1;
     private int _isPaused;
     private bool _isDisposed;
 
@@ -56,7 +56,7 @@ public sealed class LiveAnalysisSession : IAsyncDisposable
     }
 
     /// <summary>
-    /// Продолжает захват и запрашивает свежий diagnostic frame для активных preview.
+    /// Продолжает захват и запрашивает свежий кадр с активными preview.
     /// </summary>
     public void Resume()
     {
@@ -66,7 +66,7 @@ public sealed class LiveAnalysisSession : IAsyncDisposable
             return;
         }
 
-        Interlocked.Exchange(ref _forceDiagnosticFrame, 1);
+        Interlocked.Exchange(ref _forcePreviewFrame, 1);
         if (_frameSource is IPausableFrameSource pausableSource)
         {
             pausableSource.Resume();
@@ -80,7 +80,7 @@ public sealed class LiveAnalysisSession : IAsyncDisposable
     {
         ObjectDisposedException.ThrowIf(_isDisposed, this);
         Volatile.Write(ref _previewSettings, ValidatePreviewSettings(settings));
-        Interlocked.Exchange(ref _forceDiagnosticFrame, 1);
+        Interlocked.Exchange(ref _forcePreviewFrame, 1);
     }
 
     /// <summary>
@@ -153,17 +153,19 @@ public sealed class LiveAnalysisSession : IAsyncDisposable
 
                 var analysisStarted = DateTimeOffset.UtcNow;
                 var previewSettings = Volatile.Read(ref _previewSettings);
-                var isForcedDiagnostic = Interlocked.Exchange(ref _forceDiagnosticFrame, 0) != 0;
-                var includeDiagnostics = previewSettings.HasActivePreview &&
-                                         (isForcedDiagnostic ||
-                                          analyzedFrameCount % previewSettings.RefreshEveryNFrames == 0);
+                var isForcedPreview = Interlocked.Exchange(ref _forcePreviewFrame, 0) != 0;
+                var previewOutputs = previewSettings.HasActivePreview &&
+                                     (isForcedPreview ||
+                                      analyzedFrameCount % previewSettings.RefreshEveryNFrames == 0)
+                    ? previewSettings.PreviewOutputs
+                    : PanelPreviewOutputs.None;
                 analyzedFrameCount++;
                 var detection = _detector.DetectBgra32(
                     frame.PixelBuffer,
                     frame.Width,
                     frame.Height,
                     frame.Stride,
-                    includeDiagnostics);
+                    previewOutputs);
                 var completed = DateTimeOffset.UtcNow;
                 if (IsPaused)
                 {
@@ -175,7 +177,7 @@ public sealed class LiveAnalysisSession : IAsyncDisposable
                     detection,
                     analysisStarted - frame.Timestamp,
                     completed - frame.Timestamp,
-                    includeDiagnostics));
+                    previewOutputs));
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

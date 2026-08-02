@@ -1,3 +1,5 @@
+using FishingVisionAssistant.Core;
+
 namespace FishingVisionAssistant.App;
 
 /// <summary>
@@ -23,4 +25,31 @@ public sealed record LivePreviewSettings(
     /// </summary>
     public bool HasActivePreview =>
         UpdateSourcePreview || UpdateRectifiedPreview || UpdateOnnxDiagnosticPreview;
+
+    /// <summary>
+    /// Преобразует настройки интерфейса в точный набор output detector.
+    /// </summary>
+    public PanelPreviewOutputs PreviewOutputs
+    {
+        get
+        {
+            var outputs = PanelPreviewOutputs.None;
+            if (UpdateSourcePreview)
+            {
+                outputs |= PanelPreviewOutputs.SourceOverlay;
+            }
+
+            if (UpdateRectifiedPreview)
+            {
+                outputs |= PanelPreviewOutputs.RectifiedPanel;
+            }
+
+            if (UpdateOnnxDiagnosticPreview)
+            {
+                outputs |= PanelPreviewOutputs.OnnxDiagnostic;
+            }
+
+            return outputs;
+        }
+    }
 }

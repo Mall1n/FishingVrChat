@@ -18,7 +18,7 @@ public interface IPanelDetector
         int width,
         int height,
         int stride,
-        bool includeDiagnostics = true);
+        PanelPreviewOutputs previewOutputs = PanelPreviewOutputs.All);
 
     /// <summary>
     /// Анализирует BGRA32-кадр live capture без промежуточного кодирования изображения.
@@ -28,5 +28,5 @@ public interface IPanelDetector
         int width,
         int height,
         int stride,
-        bool includeDiagnostics = true);
+        PanelPreviewOutputs previewOutputs = PanelPreviewOutputs.All);
 }

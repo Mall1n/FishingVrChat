@@ -176,12 +176,12 @@
                 <TextBlock HorizontalAlignment="Right" Text="{Binding InferenceLatency}" />
               </DockPanel>
               <DockPanel Margin="0,8,0,0"
-                         ToolTip="Разбор OBB, применение Gate, пересчёт координат и — только на diagnostic-кадрах — создание preview PNG.">
+                         ToolTip="Разбор OBB, применение Gate, пересчёт координат и создание только выбранных preview PNG.">
                 <TextBlock Text="Postprocess" />
                 <TextBlock HorizontalAlignment="Right" Text="{Binding PostprocessLatency}" />
               </DockPanel>
               <DockPanel Margin="0,8,0,0">
-                <TextBlock Text="Источник результата" />
+                <TextBlock Text="Режим обработки" />
                 <TextBlock HorizontalAlignment="Right" Text="{Binding CacheStatus}" />
               </DockPanel>
               <TextBlock Margin="0,12,0,0"

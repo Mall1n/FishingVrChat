@@ -338,7 +338,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Обновляет live-метрики на каждом inference, а разрешённые preview только на diagnostic-кадрах.
+    /// Обновляет live-метрики на каждом inference и применяет только созданные detector preview.
     /// </summary>
     public void ApplyLiveFrame(
         LiveFrameAnalysis analysis,
@@ -351,19 +351,24 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         PreviewHint = string.Empty;
         PanelReason = result.Reason;
         PanelConfidence = result.Confidence;
-        if (analysis.IncludesDiagnostics)
+        if (analysis.PreviewOutputs != PanelPreviewOutputs.None)
         {
-            if (previewSettings.UpdateSourcePreview && result.OverlayPng.Length > 0)
+            if (analysis.PreviewOutputs.HasFlag(PanelPreviewOutputs.SourceOverlay) &&
+                previewSettings.UpdateSourcePreview &&
+                result.OverlayPng.Length > 0)
             {
                 SourcePreview = DecodeImage(result.OverlayPng);
             }
 
-            if (previewSettings.UpdateOnnxDiagnosticPreview && result.MaskPng.Length > 0)
+            if (analysis.PreviewOutputs.HasFlag(PanelPreviewOutputs.OnnxDiagnostic) &&
+                previewSettings.UpdateOnnxDiagnosticPreview &&
+                result.MaskPng.Length > 0)
             {
                 MaskPreview = DecodeImage(result.MaskPng);
             }
 
-            if (previewSettings.UpdateRectifiedPreview)
+            if (analysis.PreviewOutputs.HasFlag(PanelPreviewOutputs.RectifiedPanel) &&
+                previewSettings.UpdateRectifiedPreview)
             {
                 RectifiedPreview = result.RectifiedPanelPng is null
                     ? null
@@ -381,7 +386,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             ? $"live cold {performance.ColdStartMilliseconds:F1} мс · ожидание прогретых кадров"
             : $"live cold {performance.ColdStartMilliseconds:F1} · median {performance.MedianMilliseconds:F1} · " +
               $"p95 {performance.Percentile95Milliseconds:F1} мс";
-        CacheStatus = analysis.IncludesDiagnostics ? "live · diagnostic frame" : "live · fast path";
+        CacheStatus = FormatLiveProcessingMode(analysis.PreviewOutputs);
         FramePosition = $"live #{analysis.SequenceNumber:N0}";
         VideoPosition = "LIVE · latest-frame";
         SourceStatus = result.IsDetected
@@ -536,6 +541,32 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private static string FormatLatency(TimeSpan? time) =>
         time is null ? "—" : $"{time.Value.TotalMilliseconds:F1} мс";
+
+    private static string FormatLiveProcessingMode(PanelPreviewOutputs outputs)
+    {
+        if (outputs == PanelPreviewOutputs.None)
+        {
+            return "Inference · без preview";
+        }
+
+        var previewNames = new List<string>(3);
+        if (outputs.HasFlag(PanelPreviewOutputs.SourceOverlay))
+        {
+            previewNames.Add("кадр");
+        }
+
+        if (outputs.HasFlag(PanelPreviewOutputs.RectifiedPanel))
+        {
+            previewNames.Add("шкала");
+        }
+
+        if (outputs.HasFlag(PanelPreviewOutputs.OnnxDiagnostic))
+        {
+            previewNames.Add("diag");
+        }
+
+        return $"Inference · {string.Join("/", previewNames)}";
+    }
 
     private void ResetTimingBreakdown()
     {
