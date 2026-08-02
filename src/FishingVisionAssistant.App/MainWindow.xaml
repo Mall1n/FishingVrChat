@@ -593,6 +593,19 @@
               </Grid>
 
               <DockPanel Margin="0,10,0,0">
+                <TextBlock VerticalAlignment="Center" Text="Модель" />
+                <ComboBox x:Name="TrainingModelComboBox"
+                          Width="180"
+                          HorizontalAlignment="Right"
+                          SelectedIndex="0"
+                          Style="{StaticResource DarkComboBoxStyle}">
+                  <ComboBoxItem Content="YOLO26n OBB · быстро" Tag="yolo26n-obb.pt" ToolTip="Лёгкая стартовая модель для первого baseline." />
+                  <ComboBoxItem Content="YOLO26s OBB · баланс" Tag="yolo26s-obb.pt" ToolTip="Более точная и более тяжёлая модель для второго запуска." />
+                  <ComboBoxItem Content="YOLO26m OBB · точность" Tag="yolo26m-obb.pt" ToolTip="Требует больше памяти GPU и данных, чем n и s." />
+                </ComboBox>
+              </DockPanel>
+
+              <DockPanel Margin="0,10,0,0">
                 <TextBlock VerticalAlignment="Center" Text="Устройство" />
                 <ComboBox x:Name="TrainingDeviceComboBox"
                           Width="160"
@@ -622,6 +635,18 @@
                         Click="StopTraining_Click"
                         Content="Остановить"
                         IsEnabled="False" />
+                <Button x:Name="OpenTrainingLogButton"
+                        Margin="0,0,8,8"
+                        Style="{StaticResource AnnotationButtonStyle}"
+                        Click="OpenTrainingLog_Click"
+                        Content="Открыть журнал"
+                        IsEnabled="False" />
+                <Button x:Name="OpenTrainingResultFolderButton"
+                        Margin="0,0,8,8"
+                        Style="{StaticResource AnnotationButtonStyle}"
+                        Click="OpenTrainingResultFolder_Click"
+                        Content="Открыть результат"
+                        IsEnabled="False" />
               </WrapPanel>
 
               <TextBlock x:Name="TrainingStatusText"
@@ -631,7 +656,7 @@
                          Text="Готово к проверке dataset или обучению. Размер входа: 1024 × 1024."
                          TextWrapping="Wrap" />
               <TextBox x:Name="TrainingLogTextBox"
-                       Height="150"
+                       Height="76"
                        Margin="0,10,0,0"
                        Padding="8"
                        Background="#161D24"

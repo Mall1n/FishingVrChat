@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
@@ -35,6 +36,7 @@ public partial class MainWindow : Window
     private readonly MlTrainingRunner _mlTrainingRunner = new();
     private readonly MainWindowViewModel _viewModel = new();
     private readonly object _liveUiSync = new();
+    private readonly object _trainingLogSync = new();
     private ObbAnnotationOverlay? _annotationOverlay;
     private LiveDetectionOverlay? _liveDetectionOverlay;
     private LiveAnalysisSession? _pendingLiveUiSession;
@@ -67,6 +69,9 @@ public partial class MainWindow : Window
     private double _onnxMinimumAspectRatio = DefaultOnnxMinimumAspectRatio;
     private int _annotationPreviewVersion;
     private CancellationTokenSource? _mlTrainingCancellation;
+    private TrainingLogWindow? _trainingLogWindow;
+    private string? _trainingLogPath;
+    private string? _trainingResultDirectory;
 
     public MainWindow()
     {
@@ -1223,6 +1228,9 @@ public partial class MainWindow : Window
         }
 
         var arguments = new List<string> { isTraining ? "train" : "check", "--dataset", _datasetRoot };
+        var runName = isTraining
+            ? $"fishing-panel-obb-{DateTime.Now:yyyyMMdd-HHmmss}"
+            : null;
         if (isTraining)
         {
             if (!TryGetTrainingOptions(out var epochs, out var patience, out var batch))
@@ -1236,11 +1244,15 @@ public partial class MainWindow : Window
                 "--patience", patience.ToString(),
                 "--imgsz", "1024",
                 "--batch", batch.ToString(),
-                "--device", GetSelectedTrainingDevice()
+                "--device", GetSelectedTrainingDevice(),
+                "--model", GetSelectedTrainingModel(),
+                "--project", Path.Combine(mlPaths.RepositoryRoot, "artifacts", "ml"),
+                "--name", runName!
             ]);
         }
 
         _mlTrainingCancellation = new CancellationTokenSource();
+        CreateTrainingLog(mlPaths.RepositoryRoot, isTraining, runName);
         UpdateTrainingControls(isRunning: true);
         TrainingLogTextBox.Clear();
         AppendTrainingLog($"> {Path.GetFileName(mlPaths.PythonPath)} ml\\fishing_obb.py {string.Join(' ', arguments)}");
@@ -1255,6 +1267,8 @@ public partial class MainWindow : Window
                 AppendTrainingLog,
                 _mlTrainingCancellation.Token);
             var action = isTraining ? "Обучение" : "Проверка dataset";
+            OpenTrainingResultFolderButton.IsEnabled =
+                exitCode == 0 && _trainingResultDirectory is not null && Directory.Exists(_trainingResultDirectory);
             TrainingStatusText.Text = exitCode == 0
                 ? $"{action} завершено."
                 : $"{action} завершено с кодом {exitCode}. Проверьте журнал.";
@@ -1301,6 +1315,9 @@ public partial class MainWindow : Window
     private string GetSelectedTrainingDevice() =>
         (TrainingDeviceComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "auto";
 
+    private string GetSelectedTrainingModel() =>
+        (TrainingModelComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "yolo26n-obb.pt";
+
     private void UpdateTrainingControls(bool isRunning)
     {
         CheckDatasetButton.IsEnabled = !isRunning;
@@ -1309,11 +1326,18 @@ public partial class MainWindow : Window
         TrainingEpochsTextBox.IsEnabled = !isRunning;
         TrainingPatienceTextBox.IsEnabled = !isRunning;
         TrainingBatchTextBox.IsEnabled = !isRunning;
+        TrainingModelComboBox.IsEnabled = !isRunning;
         TrainingDeviceComboBox.IsEnabled = !isRunning;
+        OpenTrainingLogButton.IsEnabled = !string.IsNullOrWhiteSpace(_trainingLogPath) && File.Exists(_trainingLogPath);
+        if (isRunning)
+        {
+            OpenTrainingResultFolderButton.IsEnabled = false;
+        }
     }
 
     private void AppendTrainingLog(string line)
     {
+        WriteTrainingLogFile(line);
         if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
         {
             return;
@@ -1321,11 +1345,16 @@ public partial class MainWindow : Window
 
         if (!Dispatcher.CheckAccess())
         {
-            _ = Dispatcher.BeginInvoke(() => AppendTrainingLog(line));
+            _ = Dispatcher.BeginInvoke(() => AppendTrainingLogToUi(line));
             return;
         }
 
-        const int maximumLogLength = 200_000;
+        AppendTrainingLogToUi(line);
+    }
+
+    private void AppendTrainingLogToUi(string line)
+    {
+        const int maximumLogLength = 12_000;
         if (TrainingLogTextBox.Text.Length > maximumLogLength)
         {
             TrainingLogTextBox.Text = TrainingLogTextBox.Text[^maximumLogLength..];
@@ -1333,6 +1362,72 @@ public partial class MainWindow : Window
 
         TrainingLogTextBox.AppendText(line + Environment.NewLine);
         TrainingLogTextBox.ScrollToEnd();
+        _trainingLogWindow?.AppendLine(line);
+    }
+
+    private void OpenTrainingLog_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_trainingLogPath) || !File.Exists(_trainingLogPath))
+        {
+            TrainingStatusText.Text = "Журнал текущего запуска ещё не создан.";
+            return;
+        }
+
+        if (_trainingLogWindow is { IsVisible: true })
+        {
+            _trainingLogWindow.Activate();
+            return;
+        }
+
+        _trainingLogWindow = new TrainingLogWindow(_trainingLogPath) { Owner = this };
+        _trainingLogWindow.Closed += (_, _) => _trainingLogWindow = null;
+        _trainingLogWindow.Show();
+    }
+
+    private void OpenTrainingResultFolder_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_trainingResultDirectory) || !Directory.Exists(_trainingResultDirectory))
+        {
+            TrainingStatusText.Text = "Папка результата ещё не создана.";
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(_trainingResultDirectory) { UseShellExecute = true });
+        }
+        catch (Exception exception)
+        {
+            TrainingStatusText.Text = $"Не удалось открыть результат: {exception.Message}";
+        }
+    }
+
+    private void CreateTrainingLog(string repositoryRoot, bool isTraining, string? runName)
+    {
+        var logsDirectory = Path.Combine(repositoryRoot, "artifacts", "ml", "logs");
+        Directory.CreateDirectory(logsDirectory);
+        var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+        _trainingLogPath = Path.Combine(logsDirectory, $"{(isTraining ? "train" : "check")}-{timestamp}.log");
+        File.WriteAllText(_trainingLogPath, string.Empty, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        _trainingResultDirectory = runName is null
+            ? null
+            : Path.Combine(repositoryRoot, "artifacts", "ml", runName);
+        OpenTrainingLogButton.IsEnabled = true;
+        OpenTrainingResultFolderButton.IsEnabled = false;
+    }
+
+    private void WriteTrainingLogFile(string line)
+    {
+        var logPath = _trainingLogPath;
+        if (string.IsNullOrWhiteSpace(logPath))
+        {
+            return;
+        }
+
+        lock (_trainingLogSync)
+        {
+            File.AppendAllText(logPath, line + Environment.NewLine, Encoding.UTF8);
+        }
     }
 
     private static MlPaths? FindMlPaths()
