@@ -19,6 +19,7 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
 
     private readonly OnnxPanelDetectorOptions _options;
     private readonly InferenceSession _session;
+    private readonly OnnxExecutionProvider _activeExecutionProvider;
     private readonly string _inputName;
     private readonly string _outputName;
     private readonly int _inputWidth;
@@ -31,15 +32,7 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
         ValidateOptions(options);
 
         _options = options;
-        var sessionOptions = CreateSessionOptions(options);
-        try
-        {
-            _session = new InferenceSession(Path.GetFullPath(options.ModelPath), sessionOptions);
-        }
-        finally
-        {
-            sessionOptions.Dispose();
-        }
+        (_session, _activeExecutionProvider, FallbackReason) = CreateSession(options);
 
         (_inputName, _inputWidth, _inputHeight) = ReadInputContract(_session);
         _outputName = ReadOutputContract(_session);
@@ -48,11 +41,16 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
     /// <summary>
     /// Возвращает имя активного ONNX Runtime backend для диагностического интерфейса.
     /// </summary>
-    public string ProviderName => _options.ExecutionProvider switch
+    public string ProviderName => _activeExecutionProvider switch
     {
         OnnxExecutionProvider.DirectMl => "DirectML",
         _ => "CPU"
     };
+
+    /// <summary>
+    /// Возвращает причину перехода Auto с DirectML на CPU или null, если fallback не потребовался.
+    /// </summary>
+    public string? FallbackReason { get; }
 
     /// <inheritdoc />
     public PanelDetectionResult Detect(ReadOnlyMemory<byte> encodedImage)
@@ -409,19 +407,68 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
         return encoded;
     }
 
-    private static SessionOptions CreateSessionOptions(OnnxPanelDetectorOptions options)
+    private static (InferenceSession Session, OnnxExecutionProvider ActiveProvider, string? FallbackReason)
+        CreateSession(OnnxPanelDetectorOptions options)
+    {
+        var modelPath = Path.GetFullPath(options.ModelPath);
+        if (options.ExecutionProvider != OnnxExecutionProvider.Auto)
+        {
+            return (
+                CreateInferenceSession(modelPath, options.ExecutionProvider, options.DeviceId),
+                options.ExecutionProvider,
+                null);
+        }
+
+        try
+        {
+            return (
+                CreateInferenceSession(modelPath, OnnxExecutionProvider.DirectMl, options.DeviceId),
+                OnnxExecutionProvider.DirectMl,
+                null);
+        }
+        catch (Exception directMlException)
+        {
+            try
+            {
+                return (
+                    CreateInferenceSession(modelPath, OnnxExecutionProvider.Cpu, options.DeviceId),
+                    OnnxExecutionProvider.Cpu,
+                    directMlException.Message);
+            }
+            catch (Exception cpuException)
+            {
+                throw new AggregateException(
+                    "Модель не удалось загрузить ни через DirectML, ни через CPU.",
+                    directMlException,
+                    cpuException);
+            }
+        }
+    }
+
+    private static InferenceSession CreateInferenceSession(
+        string modelPath,
+        OnnxExecutionProvider executionProvider,
+        int deviceId)
+    {
+        using var sessionOptions = CreateSessionOptions(executionProvider, deviceId);
+        return new InferenceSession(modelPath, sessionOptions);
+    }
+
+    private static SessionOptions CreateSessionOptions(
+        OnnxExecutionProvider executionProvider,
+        int deviceId)
     {
         var sessionOptions = new SessionOptions
         {
             GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
             LogSeverityLevel = OrtLoggingLevel.ORT_LOGGING_LEVEL_WARNING
         };
-        if (options.ExecutionProvider == OnnxExecutionProvider.DirectMl)
+        if (executionProvider == OnnxExecutionProvider.DirectMl)
         {
             // DirectML требует последовательное выполнение и отключённый memory pattern.
             sessionOptions.EnableMemoryPattern = false;
             sessionOptions.ExecutionMode = ExecutionMode.ORT_SEQUENTIAL;
-            sessionOptions.AppendExecutionProvider_DML(options.DeviceId);
+            sessionOptions.AppendExecutionProvider_DML(deviceId);
         }
 
         return sessionOptions;
@@ -489,6 +536,10 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
         }
 
         ArgumentOutOfRangeException.ThrowIfNegative(options.DeviceId);
+        if (!Enum.IsDefined(options.ExecutionProvider))
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), "Неизвестный ONNX execution provider.");
+        }
     }
 
     private sealed record ObbCandidate(

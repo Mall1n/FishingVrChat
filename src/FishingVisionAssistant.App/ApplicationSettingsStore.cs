@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using FishingVisionAssistant.Core;
 
 namespace FishingVisionAssistant.App;
 
@@ -91,6 +92,8 @@ public sealed class ApplicationSettings
     public double OnnxMinimumConfidence { get; init; } = 0.5;
 
     public double OnnxMinimumAspectRatio { get; init; } = 10;
+
+    public OnnxExecutionProvider OnnxExecutionProvider { get; init; } = OnnxExecutionProvider.Auto;
 
     public int PlaybackSpeedIndex { get; init; } = 2;
 }

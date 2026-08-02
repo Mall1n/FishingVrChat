@@ -6,6 +6,11 @@ namespace FishingVisionAssistant.Core;
 public enum OnnxExecutionProvider
 {
     /// <summary>
+    /// Сначала пробует DirectML и автоматически переходит на CPU, если GPU session недоступна.
+    /// </summary>
+    Auto,
+
+    /// <summary>
     /// Выполняет inference на GPU через DirectML.
     /// </summary>
     DirectMl,

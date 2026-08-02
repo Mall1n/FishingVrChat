@@ -53,6 +53,7 @@ public partial class MainWindow : Window
     private bool _isRestoringSettings;
     private string? _onnxModelPath;
     private OnnxPanelDetector? _onnxPanelDetector;
+    private OnnxExecutionProvider _onnxExecutionProvider = OnnxExecutionProvider.Auto;
     private double _onnxMinimumConfidence = DefaultOnnxMinimumConfidence;
     private double _onnxMinimumAspectRatio = DefaultOnnxMinimumAspectRatio;
     private int _annotationPreviewVersion;
@@ -598,6 +599,10 @@ public partial class MainWindow : Window
             OnnxModelPathText.Text = _onnxModelPath ?? "Модель не выбрана";
             _onnxMinimumConfidence = Math.Clamp(settings.OnnxMinimumConfidence, 0.05, 0.95);
             _onnxMinimumAspectRatio = Math.Clamp(settings.OnnxMinimumAspectRatio, 1, 30);
+            _onnxExecutionProvider = Enum.IsDefined(settings.OnnxExecutionProvider)
+                ? settings.OnnxExecutionProvider
+                : OnnxExecutionProvider.Auto;
+            SelectOnnxExecutionProvider(_onnxExecutionProvider);
             UpdateOnnxGateSummary();
 
             var split = Enum.IsDefined(typeof(DatasetSplit), settings.DatasetSplit)
@@ -625,6 +630,7 @@ public partial class MainWindow : Window
         OnnxModelPath = _onnxModelPath,
         OnnxMinimumConfidence = _onnxMinimumConfidence,
         OnnxMinimumAspectRatio = _onnxMinimumAspectRatio,
+        OnnxExecutionProvider = _onnxExecutionProvider,
         PlaybackSpeedIndex = _playbackSpeedIndex
     };
 
@@ -699,6 +705,34 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void OnnxBackend_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded || _isRestoringSettings)
+        {
+            return;
+        }
+
+        var selectedProvider = GetSelectedOnnxExecutionProvider();
+        if (selectedProvider == _onnxExecutionProvider)
+        {
+            return;
+        }
+
+        if (_isFrameTransitionActive)
+        {
+            SelectOnnxExecutionProvider(_onnxExecutionProvider);
+            OnnxDetectorStatusText.Text = "Дождитесь завершения анализа текущего кадра.";
+            return;
+        }
+
+        _onnxExecutionProvider = selectedProvider;
+        UpdateOnnxGateSummary();
+        if (!string.IsNullOrWhiteSpace(_onnxModelPath) && File.Exists(_onnxModelPath))
+        {
+            await ActivateOnnxDetectorAsync(reanalyzeCurrentSource: true);
+        }
+    }
+
     private async Task ActivateOnnxDetectorAsync(bool reanalyzeCurrentSource)
     {
         if (string.IsNullOrWhiteSpace(_onnxModelPath) || !File.Exists(_onnxModelPath))
@@ -709,7 +743,8 @@ public partial class MainWindow : Window
 
         StopPlayback();
         SetOnnxControlsEnabled(false);
-        OnnxDetectorStatusText.Text = "Загрузка модели и подготовка CPU backend…";
+        OnnxDetectorStatusText.ToolTip = null;
+        OnnxDetectorStatusText.Text = "Загрузка модели через Windows ML self-contained…";
         try
         {
             var modelPath = _onnxModelPath;
@@ -718,18 +753,24 @@ public partial class MainWindow : Window
                 ModelPath = modelPath,
                 MinimumConfidence = _onnxMinimumConfidence,
                 MinimumAspectRatio = _onnxMinimumAspectRatio,
-                ExecutionProvider = OnnxExecutionProvider.Cpu
+                ExecutionProvider = _onnxExecutionProvider
             }));
 
             var previous = _onnxPanelDetector;
             _onnxPanelDetector = detector;
             await ReplaceActiveDetectorAsync(detector, reanalyzeCurrentSource);
             previous?.Dispose();
-            OnnxDetectorStatusText.Text = $"Модель загружена · {detector.ProviderName} · 1024 × 1024.";
+            OnnxDetectorStatusText.Text = detector.FallbackReason is null
+                ? $"Модель загружена · Windows ML self-contained · {detector.ProviderName} · 1024 × 1024."
+                : "Модель загружена · Windows ML self-contained · CPU · " +
+                  "Auto fallback: DirectML недоступен.";
+            OnnxDetectorStatusText.ToolTip = detector.FallbackReason;
+            UpdateOnnxGateSummary();
         }
         catch (Exception exception)
         {
             OnnxDetectorStatusText.Text = $"ONNX не загружен: {exception.Message}";
+            OnnxDetectorStatusText.ToolTip = exception.ToString();
             MessageBox.Show(
                 this,
                 $"Не удалось загрузить ONNX detector: {exception.Message}",
@@ -768,15 +809,46 @@ public partial class MainWindow : Window
     private void SetOnnxControlsEnabled(bool isEnabled)
     {
         ChooseOnnxModelButton.IsEnabled = isEnabled;
+        OnnxBackendComboBox.IsEnabled = isEnabled;
         ConfigureOnnxGateButton.IsEnabled = isEnabled;
     }
 
     private void UpdateOnnxGateSummary()
     {
+        var requestedProvider = FormatOnnxExecutionProvider(_onnxExecutionProvider);
+        var activeProvider = _onnxPanelDetector is null
+            ? string.Empty
+            : $", активен: {_onnxPanelDetector.ProviderName}";
         OnnxGateSummaryText.Text =
             $"Gate: confidence ≥ {_onnxMinimumConfidence:P0}, " +
-            $"aspect ratio ≥ {_onnxMinimumAspectRatio:F1}. Backend: CPU compatibility mode.";
+            $"aspect ratio ≥ {_onnxMinimumAspectRatio:F1}. " +
+            $"Backend: {requestedProvider}{activeProvider}.";
     }
+
+    private void SelectOnnxExecutionProvider(OnnxExecutionProvider provider)
+    {
+        var item = OnnxBackendComboBox.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(candidate =>
+                string.Equals(candidate.Tag?.ToString(), provider.ToString(), StringComparison.OrdinalIgnoreCase));
+        OnnxBackendComboBox.SelectedItem = item ?? OnnxBackendComboBox.Items[0];
+    }
+
+    private OnnxExecutionProvider GetSelectedOnnxExecutionProvider()
+    {
+        return OnnxBackendComboBox.SelectedItem is ComboBoxItem item &&
+               Enum.TryParse<OnnxExecutionProvider>(item.Tag?.ToString(), ignoreCase: true, out var provider)
+            ? provider
+            : OnnxExecutionProvider.Auto;
+    }
+
+    private static string FormatOnnxExecutionProvider(OnnxExecutionProvider provider) => provider switch
+    {
+        OnnxExecutionProvider.Auto => "Auto (DirectML → CPU)",
+        OnnxExecutionProvider.DirectMl => "DirectML",
+        OnnxExecutionProvider.Cpu => "CPU",
+        _ => provider.ToString()
+    };
 
     private static string? FindDefaultOnnxModelPath()
     {

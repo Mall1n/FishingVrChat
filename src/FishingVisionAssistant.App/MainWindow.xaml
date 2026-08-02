@@ -310,6 +310,27 @@
                       Style="{StaticResource AnnotationButtonStyle}"
                       Click="ChooseOnnxModel_Click"
                       Content="Выбрать ONNX-модель" />
+              <DockPanel Margin="0,10,0,0">
+                <TextBlock VerticalAlignment="Center" Text="Backend" />
+                <ComboBox x:Name="OnnxBackendComboBox"
+                          Width="180"
+                          Margin="12,0,0,0"
+                          HorizontalAlignment="Right"
+                          Background="#F3F6F8"
+                          Foreground="#101419"
+                          SelectedIndex="0"
+                          SelectionChanged="OnnxBackend_SelectionChanged">
+                  <ComboBoxItem Tag="Auto">
+                    <TextBlock Foreground="#101419" Text="Auto (DirectML → CPU)" />
+                  </ComboBoxItem>
+                  <ComboBoxItem Tag="DirectMl">
+                    <TextBlock Foreground="#101419" Text="DirectML" />
+                  </ComboBoxItem>
+                  <ComboBoxItem Tag="Cpu">
+                    <TextBlock Foreground="#101419" Text="CPU" />
+                  </ComboBoxItem>
+                </ComboBox>
+              </DockPanel>
               <Button x:Name="ConfigureOnnxGateButton"
                       Margin="0,8,0,0"
                       Style="{StaticResource AnnotationButtonStyle}"
@@ -331,7 +352,7 @@
                          Margin="0,7,0,0"
                          FontSize="11"
                          Foreground="{StaticResource SecondaryTextBrush}"
-                         Text="Gate: confidence ≥ 50 %, aspect ratio ≥ 10. Backend: CPU compatibility mode."
+                         Text="Gate: confidence ≥ 50 %, aspect ratio ≥ 10. Backend: Auto (DirectML → CPU)."
                          TextWrapping="Wrap" />
             </StackPanel>
           </Border>
