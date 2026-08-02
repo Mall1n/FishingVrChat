@@ -26,19 +26,17 @@
         <TextBlock FontSize="26" FontWeight="SemiBold" Text="Fishing Vision Assistant" />
         <TextBlock Margin="0,4,0,0"
                    Foreground="{StaticResource SecondaryTextBrush}"
-                   Text="Offline-анализ и визуальная рекомендация без автоматизации ввода" />
+                   Text="Offline и live-анализ с визуальной рекомендацией без автоматизации ввода" />
       </StackPanel>
 
       <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right" Orientation="Horizontal">
         <Button Click="OpenRecording_Click" Content="Открыть запись" />
-        <Border Padding="12,8"
-                Background="#1D252D"
-                BorderBrush="{StaticResource PanelBorderBrush}"
-                BorderThickness="1"
-                CornerRadius="3"
-                ToolTip="Live capture будет подключён на следующем этапе">
-          <TextBlock Foreground="{StaticResource SecondaryTextBrush}" Text="Live capture · позже" />
-        </Border>
+        <Button x:Name="LiveCaptureButton"
+                Margin="8,0,0,0"
+                Click="LiveCapture_Click"
+                Content="Запустить Live capture"
+                IsEnabled="True"
+                ToolTip="Выбрать окно VRChat или монитор через системный picker" />
       </StackPanel>
     </DockPanel>
 
@@ -156,19 +154,23 @@
                 <TextBlock Text="Текущая latency" />
                 <TextBlock HorizontalAlignment="Right" Text="{Binding PipelineLatency}" />
               </DockPanel>
-              <DockPanel Margin="0,8,0,0">
-                <TextBlock Text="Decode" />
+              <DockPanel Margin="0,8,0,0"
+                         ToolTip="Offline: чтение кадра из видео. Live: получение кадра с GPU и ожидание свободного detector.">
+                <TextBlock Text="{Binding InputLatencyLabel}" />
                 <TextBlock HorizontalAlignment="Right" Text="{Binding DecodeLatency}" />
               </DockPanel>
-              <DockPanel Margin="0,8,0,0">
+              <DockPanel Margin="0,8,0,0"
+                         ToolTip="Подготовка входа модели: BGRA/BGR-преобразование, letterbox, RGB-нормализация и создание tensor.">
                 <TextBlock Text="Preprocess" />
                 <TextBlock HorizontalAlignment="Right" Text="{Binding PreprocessLatency}" />
               </DockPanel>
-              <DockPanel Margin="0,8,0,0">
+              <DockPanel Margin="0,8,0,0"
+                         ToolTip="Выполнение нейросети внутри ONNX Runtime: вызов InferenceSession.Run без подготовки и разбора результата.">
                 <TextBlock Text="Inference" />
                 <TextBlock HorizontalAlignment="Right" Text="{Binding InferenceLatency}" />
               </DockPanel>
-              <DockPanel Margin="0,8,0,0">
+              <DockPanel Margin="0,8,0,0"
+                         ToolTip="Разбор OBB, применение Gate, пересчёт координат и — только на diagnostic-кадрах — создание preview PNG.">
                 <TextBlock Text="Postprocess" />
                 <TextBlock HorizontalAlignment="Right" Text="{Binding PostprocessLatency}" />
               </DockPanel>
@@ -301,15 +303,7 @@
                   BorderThickness="1"
                   CornerRadius="8">
             <StackPanel>
-              <DockPanel>
-                <CheckBox x:Name="OnnxDetectorCheckBox"
-                          DockPanel.Dock="Right"
-                          VerticalAlignment="Center"
-                          Checked="OnnxDetectorMode_Changed"
-                          Content="Активен"
-                          Unchecked="OnnxDetectorMode_Changed" />
-                <TextBlock FontSize="17" FontWeight="SemiBold" Text="ONNX detector" />
-              </DockPanel>
+              <TextBlock FontSize="17" FontWeight="SemiBold" Text="ONNX detector" />
 
               <Button x:Name="ChooseOnnxModelButton"
                       Margin="0,12,0,0"
@@ -331,7 +325,7 @@
               <TextBlock x:Name="OnnxDetectorStatusText"
                          Margin="0,8,0,0"
                          Foreground="{StaticResource SecondaryTextBrush}"
-                         Text="Используется legacy OpenCV detector."
+                         Text="ONNX-модель не загружена."
                          TextWrapping="Wrap" />
               <TextBlock x:Name="OnnxGateSummaryText"
                          Margin="0,7,0,0"
@@ -465,75 +459,6 @@
             </StackPanel>
           </Border>
 
-          <Border x:Name="HsvLabPanel"
-                  Margin="0,14,0,0"
-                  Padding="18"
-                  Background="{StaticResource PanelBackgroundBrush}"
-                  BorderBrush="{StaticResource PanelBorderBrush}"
-                  BorderThickness="1"
-                  CornerRadius="8">
-            <StackPanel>
-              <DockPanel>
-                <Button DockPanel.Dock="Right"
-                        Margin="8,0,0,0"
-                        Padding="8,3"
-                        Click="ResetHsv_Click"
-                        Content="Сбросить" />
-                <TextBlock VerticalAlignment="Center"
-                           FontSize="17"
-                           FontWeight="SemiBold"
-                           Text="HSV Lab" />
-              </DockPanel>
-              <TextBlock Margin="0,8,0,0"
-                         Foreground="{StaticResource SecondaryTextBrush}"
-                         Text="Маска обновляется автоматически. OpenCV: H 0–179, S/V 0–255."
-                         TextWrapping="Wrap" />
-
-              <DockPanel Margin="0,12,0,0">
-                <TextBlock DockPanel.Dock="Right" Text="{Binding MinimumHue, StringFormat=F0}" />
-                <TextBlock Text="Hue min" />
-              </DockPanel>
-              <Slider Minimum="0"
-                      Maximum="178"
-                      IsSnapToTickEnabled="True"
-                      TickFrequency="1"
-                      Value="{Binding MinimumHue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                      ValueChanged="HsvSlider_ValueChanged" />
-
-              <DockPanel Margin="0,8,0,0">
-                <TextBlock DockPanel.Dock="Right" Text="{Binding MaximumHue, StringFormat=F0}" />
-                <TextBlock Text="Hue max" />
-              </DockPanel>
-              <Slider Minimum="1"
-                      Maximum="179"
-                      IsSnapToTickEnabled="True"
-                      TickFrequency="1"
-                      Value="{Binding MaximumHue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                      ValueChanged="HsvSlider_ValueChanged" />
-
-              <DockPanel Margin="0,8,0,0">
-                <TextBlock DockPanel.Dock="Right" Text="{Binding MinimumSaturation, StringFormat=F0}" />
-                <TextBlock Text="Saturation min" />
-              </DockPanel>
-              <Slider Minimum="0"
-                      Maximum="255"
-                      IsSnapToTickEnabled="True"
-                      TickFrequency="1"
-                      Value="{Binding MinimumSaturation, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                      ValueChanged="HsvSlider_ValueChanged" />
-
-              <DockPanel Margin="0,8,0,0">
-                <TextBlock DockPanel.Dock="Right" Text="{Binding MinimumValue, StringFormat=F0}" />
-                <TextBlock Text="Value min" />
-              </DockPanel>
-              <Slider Minimum="0"
-                      Maximum="255"
-                      IsSnapToTickEnabled="True"
-                      TickFrequency="1"
-                      Value="{Binding MinimumValue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                      ValueChanged="HsvSlider_ValueChanged" />
-            </StackPanel>
-          </Border>
         </StackPanel>
       </ScrollViewer>
     </Grid>

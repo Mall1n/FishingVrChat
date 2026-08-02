@@ -67,11 +67,16 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
             throw new ArgumentException("Изображение не удалось декодировать.", nameof(encodedImage));
         }
 
-        return Detect(source, stopwatch);
+        return Detect(source, stopwatch, includeDiagnostics: true);
     }
 
     /// <inheritdoc />
-    public PanelDetectionResult DetectBgr24(byte[] pixels, int width, int height, int stride)
+    public PanelDetectionResult DetectBgr24(
+        byte[] pixels,
+        int width,
+        int height,
+        int stride,
+        bool includeDiagnostics = true)
     {
         ObjectDisposedException.ThrowIf(_isDisposed, this);
         ArgumentNullException.ThrowIfNull(pixels);
@@ -85,7 +90,32 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
 
         var stopwatch = Stopwatch.StartNew();
         using var source = Mat.FromPixelData(height, width, MatType.CV_8UC3, pixels, stride);
-        return Detect(source, stopwatch);
+        return Detect(source, stopwatch, includeDiagnostics);
+    }
+
+    /// <inheritdoc />
+    public PanelDetectionResult DetectBgra32(
+        byte[] pixels,
+        int width,
+        int height,
+        int stride,
+        bool includeDiagnostics = true)
+    {
+        ObjectDisposedException.ThrowIf(_isDisposed, this);
+        ArgumentNullException.ThrowIfNull(pixels);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
+        ArgumentOutOfRangeException.ThrowIfLessThan(stride, checked(width * 4));
+        if (pixels.Length < checked(stride * height))
+        {
+            throw new ArgumentException("Pixel buffer меньше заявленной геометрии кадра.", nameof(pixels));
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        using var bgra = Mat.FromPixelData(height, width, MatType.CV_8UC4, pixels, stride);
+        using var source = new Mat();
+        Cv2.CvtColor(bgra, source, ColorConversionCodes.BGRA2BGR);
+        return Detect(source, stopwatch, includeDiagnostics);
     }
 
     /// <inheritdoc />
@@ -100,7 +130,7 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
         _isDisposed = true;
     }
 
-    private PanelDetectionResult Detect(Mat source, Stopwatch stopwatch)
+    private PanelDetectionResult Detect(Mat source, Stopwatch stopwatch, bool includeDiagnostics)
     {
         var phaseStopwatch = Stopwatch.StartNew();
         using var networkInput = CreateLetterbox(source, out var transform);
@@ -114,8 +144,6 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
         var inferenceTime = phaseStopwatch.Elapsed;
 
         phaseStopwatch.Restart();
-        using var overlay = source.Clone();
-        using var diagnostic = networkInput.Clone();
         var predictions = ReadPredictions(outputs);
 
         var validPredictions = predictions
@@ -126,27 +154,34 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
             .OrderByDescending(candidate => candidate.Confidence)
             .FirstOrDefault();
 
-        DrawDiagnosticCandidates(diagnostic, validPredictions, accepted);
         if (accepted is null)
         {
             var best = validPredictions.OrderByDescending(candidate => candidate.Confidence).FirstOrDefault();
-            Cv2.PutText(
-                overlay,
-                "ONNX: panel not found",
-                new Point(20, 40),
-                HersheyFonts.HersheySimplex,
-                1,
-                Scalar.OrangeRed,
-                2,
-                LineTypes.AntiAlias);
-
             var reason = best is null
                 ? $"ONNX ({ProviderName}): модель не вернула корректных OBB."
                 : $"ONNX ({ProviderName}): лучший OBB не прошёл gate — confidence " +
                   $"{best.Confidence:P1}, aspect ratio {best.AspectRatio:F1}; требуется " +
                   $"≥ {_options.MinimumConfidence:P0} и ≥ {_options.MinimumAspectRatio:F1}.";
-            var notFoundOverlayPng = EncodePng(overlay);
-            var notFoundDiagnosticPng = EncodePng(diagnostic);
+            var notFoundOverlayPng = Array.Empty<byte>();
+            var notFoundDiagnosticPng = Array.Empty<byte>();
+            if (includeDiagnostics)
+            {
+                using var overlay = source.Clone();
+                using var diagnostic = networkInput.Clone();
+                DrawDiagnosticCandidates(diagnostic, validPredictions, accepted);
+                Cv2.PutText(
+                    overlay,
+                    "ONNX: panel not found",
+                    new Point(20, 40),
+                    HersheyFonts.HersheySimplex,
+                    1,
+                    Scalar.OrangeRed,
+                    2,
+                    LineTypes.AntiAlias);
+                notFoundOverlayPng = EncodePng(overlay);
+                notFoundDiagnosticPng = EncodePng(diagnostic);
+            }
+
             phaseStopwatch.Stop();
             stopwatch.Stop();
             return new PanelDetectionResult(
@@ -165,11 +200,21 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
         var sourceCorners = inputCorners
             .Select(point => transform.ToSource(point, source.Size()))
             .ToArray();
-        DrawAcceptedOverlay(overlay, sourceCorners, accepted);
-        using var rectified = Rectify(source, sourceCorners, accepted.Width >= accepted.Height);
-        var overlayPng = EncodePng(overlay);
-        var diagnosticPng = EncodePng(diagnostic);
-        var rectifiedPng = EncodePng(rectified);
+        var overlayPng = Array.Empty<byte>();
+        var diagnosticPng = Array.Empty<byte>();
+        byte[]? rectifiedPng = null;
+        if (includeDiagnostics)
+        {
+            using var overlay = source.Clone();
+            using var diagnostic = networkInput.Clone();
+            DrawDiagnosticCandidates(diagnostic, validPredictions, accepted);
+            DrawAcceptedOverlay(overlay, sourceCorners, accepted);
+            using var rectified = Rectify(source, sourceCorners, accepted.Width >= accepted.Height);
+            overlayPng = EncodePng(overlay);
+            diagnosticPng = EncodePng(diagnostic);
+            rectifiedPng = EncodePng(rectified);
+        }
+
         phaseStopwatch.Stop();
         stopwatch.Stop();
 

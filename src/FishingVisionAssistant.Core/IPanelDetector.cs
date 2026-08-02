@@ -13,5 +13,20 @@ public interface IPanelDetector
     /// <summary>
     /// Анализирует декодированный BGR24-кадр без промежуточного PNG или JPEG.
     /// </summary>
-    PanelDetectionResult DetectBgr24(byte[] pixels, int width, int height, int stride);
+    PanelDetectionResult DetectBgr24(
+        byte[] pixels,
+        int width,
+        int height,
+        int stride,
+        bool includeDiagnostics = true);
+
+    /// <summary>
+    /// Анализирует BGRA32-кадр live capture без промежуточного кодирования изображения.
+    /// </summary>
+    PanelDetectionResult DetectBgra32(
+        byte[] pixels,
+        int width,
+        int height,
+        int stride,
+        bool includeDiagnostics = true);
 }

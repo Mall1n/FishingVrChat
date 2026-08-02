@@ -1,7 +1,7 @@
 namespace FishingVisionAssistant.Capture;
 
 /// <summary>
-/// Представляет неизменяемый кадр с временной меткой и параметрами pixel buffer.
+/// Представляет кадр с временной меткой и принадлежащим ему pixel buffer.
 /// </summary>
 public sealed record CapturedFrame(
     long SequenceNumber,
@@ -10,4 +10,4 @@ public sealed record CapturedFrame(
     int Height,
     int Stride,
     FramePixelFormat PixelFormat,
-    ReadOnlyMemory<byte> PixelBuffer);
+    byte[] PixelBuffer);

@@ -6,7 +6,7 @@
       "type": "coreclr",
       "request": "launch",
       "preLaunchTask": "build app",
-      "program": "${workspaceFolder}/src/FishingVisionAssistant.App/bin/Debug/net8.0-windows/FishingVisionAssistant.App.dll",
+      "program": "${workspaceFolder}/src/FishingVisionAssistant.App/bin/Debug/net8.0-windows10.0.19041.0/FishingVisionAssistant.App.dll",
       "cwd": "${workspaceFolder}/src/FishingVisionAssistant.App",
       "stopAtEntry": false
     }

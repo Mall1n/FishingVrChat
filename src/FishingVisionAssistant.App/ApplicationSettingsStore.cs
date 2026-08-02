@@ -88,19 +88,9 @@ public sealed class ApplicationSettings
 
     public string? OnnxModelPath { get; init; }
 
-    public bool UseOnnxDetector { get; init; }
-
     public double OnnxMinimumConfidence { get; init; } = 0.5;
 
     public double OnnxMinimumAspectRatio { get; init; } = 10;
-
-    public double MinimumHue { get; init; } = 115;
-
-    public double MaximumHue { get; init; } = 145;
-
-    public double MinimumSaturation { get; init; } = 141;
-
-    public double MinimumValue { get; init; } = 59;
 
     public int PlaybackSpeedIndex { get; init; } = 2;
 }

@@ -3,11 +3,13 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using FishingVisionAssistant.Capture;
 using FishingVisionAssistant.Core;
 using Microsoft.Win32;
+using Windows.Graphics.Capture;
 using Rectangle = System.Windows.Shapes.Rectangle;
 
 namespace FishingVisionAssistant.App;
@@ -21,11 +23,7 @@ public partial class MainWindow : Window
     private const double DefaultOnnxMinimumConfidence = 0.5;
     private const double DefaultOnnxMinimumAspectRatio = 10;
 
-    private IPanelDetector _panelDetector;
-    private readonly DispatcherTimer _hsvDebounceTimer = new(DispatcherPriority.Background)
-    {
-        Interval = TimeSpan.FromMilliseconds(180)
-    };
+    private IPanelDetector? _panelDetector;
     private readonly DispatcherTimer _annotationPreviewTimer = new(DispatcherPriority.Background)
     {
         Interval = TimeSpan.FromMilliseconds(80)
@@ -37,6 +35,7 @@ public partial class MainWindow : Window
     private ObbAnnotationOverlay? _annotationOverlay;
     private PerformanceStatistics _performanceStatistics = new();
     private VideoAnalysisSession? _videoSession;
+    private LiveAnalysisSession? _liveSession;
     private PanelDetectionResult? _currentDetection;
     private string? _datasetRoot;
     private string? _currentImagePath;
@@ -60,14 +59,12 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
-        _panelDetector = CreateLegacyPanelDetector();
         InitializeComponent();
         DataContext = _viewModel;
         _annotationOverlay = new ObbAnnotationOverlay(SourcePreviewImage, AnnotationCanvas);
         _annotationOverlay.Changed += AnnotationOverlay_Changed;
         UpdateAnnotationControls();
         _annotationPreviewTimer.Tick += AnnotationPreviewTimer_Tick;
-        _hsvDebounceTimer.Tick += HsvDebounceTimer_Tick;
         _playbackTimer.Tick += PlaybackTimer_Tick;
         Loaded += MainWindow_Loaded;
         Closed += MainWindow_Closed;
@@ -90,7 +87,7 @@ public partial class MainWindow : Window
 
         EnsureDatasetStructure();
 
-        await RestoreDetectorAsync(settings.UseOnnxDetector);
+        await RestoreDetectorAsync();
         var explicitSourcePath = arguments.FirstOrDefault(File.Exists);
         var sourcePath = explicitSourcePath ??
                          (_lastVideoPath is not null && File.Exists(_lastVideoPath) ? _lastVideoPath : null);
@@ -105,7 +102,11 @@ public partial class MainWindow : Window
                 ? _lastVideoFrameIndex
                 : 0;
 
-        if (sourcePath is not null && IsImage(sourcePath))
+        if (_panelDetector is null && sourcePath is not null)
+        {
+            AnnotationStatusText.Text = "Последний источник не открыт: сначала выберите ONNX-модель.";
+        }
+        else if (sourcePath is not null && IsImage(sourcePath))
         {
             await AnalyzeImageAsync(sourcePath);
         }
@@ -139,6 +140,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        await StopLiveCaptureAsync();
         StopPlayback();
         if (IsImage(dialog.FileName))
         {
@@ -150,8 +152,73 @@ public partial class MainWindow : Window
         await OpenVideoAsync(dialog.FileName);
     }
 
+    private async void LiveCapture_Click(object sender, RoutedEventArgs e)
+    {
+        if (_liveSession is not null)
+        {
+            await StopLiveCaptureAsync();
+            return;
+        }
+
+        var detector = _panelDetector;
+        if (detector is null)
+        {
+            ShowOnnxModelRequired();
+            return;
+        }
+
+        if (!GraphicsCaptureSession.IsSupported())
+        {
+            MessageBox.Show(
+                this,
+                "Windows.Graphics.Capture не поддерживается этой версией Windows.",
+                "Live capture недоступен",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        try
+        {
+            var picker = new GraphicsCapturePicker();
+            var windowHandle = new WindowInteropHelper(this).Handle;
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, windowHandle);
+            var item = await picker.PickSingleItemAsync();
+            if (item is null)
+            {
+                return;
+            }
+
+            DisposeVideoSession();
+            ResetCurrentDetection();
+            _currentImagePath = null;
+            var session = new LiveAnalysisSession(new WindowsGraphicsCaptureFrameSource(item), detector);
+            _liveSession = session;
+            _performanceStatistics = new PerformanceStatistics();
+            _viewModel.BeginLiveCapture(session.Descriptor);
+            LiveCaptureButton.Content = "Остановить Live capture";
+            UpdateAnnotationControls();
+            session.Start(
+                analysis => Dispatcher.BeginInvoke(() => ApplyLiveFrame(session, analysis)),
+                exception => Dispatcher.BeginInvoke(() => HandleLiveCaptureError(session, exception)),
+                () => Dispatcher.BeginInvoke(() => HandleLiveCaptureCompleted(session)));
+        }
+        catch (Exception exception)
+        {
+            await StopLiveCaptureAsync();
+            ShowAnalysisError(exception);
+        }
+    }
+
     private async Task AnalyzeImageAsync(string path)
     {
+        var detector = _panelDetector;
+        if (detector is null)
+        {
+            ShowOnnxModelRequired();
+            return;
+        }
+
         try
         {
             ResetCurrentDetection();
@@ -159,7 +226,7 @@ public partial class MainWindow : Window
             _viewModel.BeginImageAnalysis(path);
             var encodedImage = await File.ReadAllBytesAsync(path);
             _annotationFramePng = FramePngEncoder.NormalizeEncodedImage(encodedImage);
-            var result = await Task.Run(() => _panelDetector.Detect(encodedImage));
+            var result = await Task.Run(() => detector.Detect(encodedImage));
             _viewModel.ApplyPanelDetection(path, result);
             SetCurrentDetection(result);
             await RefreshExistingAnnotationAsync();
@@ -172,6 +239,13 @@ public partial class MainWindow : Window
 
     private async Task OpenVideoAsync(string path, long initialFrameIndex = 0)
     {
+        var detector = _panelDetector;
+        if (detector is null)
+        {
+            ShowOnnxModelRequired();
+            return;
+        }
+
         DisposeVideoSession();
         ResetCurrentDetection();
         _currentImagePath = null;
@@ -180,7 +254,7 @@ public partial class MainWindow : Window
         try
         {
             var session = await Task.Run(
-                () => new VideoAnalysisSession(new VideoFrameSource(path), _panelDetector));
+                () => new VideoAnalysisSession(new VideoFrameSource(path), detector));
             _videoSession = session;
             _lastVideoPath = Path.GetFullPath(path);
             _performanceStatistics = new PerformanceStatistics();
@@ -405,58 +479,6 @@ public partial class MainWindow : Window
         UpdatePlaybackInterval();
     }
 
-    private void HsvSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) =>
-        ScheduleHsvReanalysis();
-
-    private void ResetHsv_Click(object sender, RoutedEventArgs e)
-    {
-        _viewModel.ResetHsv();
-        ScheduleHsvReanalysis();
-    }
-
-    private void ScheduleHsvReanalysis()
-    {
-        if (!IsLoaded || _isRestoringSettings)
-        {
-            return;
-        }
-
-        if (!_hsvDebounceTimer.IsEnabled)
-        {
-            _hsvDebounceTimer.Start();
-        }
-    }
-
-    private async void HsvDebounceTimer_Tick(object? sender, EventArgs e)
-    {
-        _hsvDebounceTimer.Stop();
-        if (_isFrameTransitionActive)
-        {
-            ScheduleHsvReanalysis();
-            return;
-        }
-
-        StopPlayback();
-        if (_panelDetector is OnnxPanelDetector)
-        {
-            return;
-        }
-
-        _panelDetector = CreateLegacyPanelDetector();
-        if (_videoSession is not null)
-        {
-            _videoSession.UpdateDetector(_panelDetector);
-            _performanceStatistics = new PerformanceStatistics();
-            await ShowVideoFrameAsync(_currentFrameIndex);
-            return;
-        }
-
-        if (_currentImagePath is not null)
-        {
-            await AnalyzeImageAsync(_currentImagePath);
-        }
-    }
-
     private void UpdatePlaybackInterval()
     {
         var framesPerSecond = _videoSession?.Metadata.FramesPerSecond ?? 30;
@@ -480,6 +502,53 @@ public partial class MainWindow : Window
         UpdateAnnotationControls();
     }
 
+    private void ApplyLiveFrame(LiveAnalysisSession session, LiveFrameAnalysis analysis)
+    {
+        if (!ReferenceEquals(session, _liveSession))
+        {
+            return;
+        }
+
+        _performanceStatistics.Add(analysis.EndToEndTime);
+        _viewModel.ApplyLiveFrame(analysis, _performanceStatistics.GetSnapshot());
+    }
+
+    private async void HandleLiveCaptureError(LiveAnalysisSession session, Exception exception)
+    {
+        if (!ReferenceEquals(session, _liveSession))
+        {
+            return;
+        }
+
+        await StopLiveCaptureAsync();
+        ShowAnalysisError(exception);
+    }
+
+    private async void HandleLiveCaptureCompleted(LiveAnalysisSession session)
+    {
+        if (!ReferenceEquals(session, _liveSession))
+        {
+            return;
+        }
+
+        await StopLiveCaptureAsync("Live capture завершён выбранным источником");
+    }
+
+    private async Task StopLiveCaptureAsync(string status = "Live capture остановлен")
+    {
+        var session = _liveSession;
+        if (session is null)
+        {
+            return;
+        }
+
+        _liveSession = null;
+        LiveCaptureButton.Content = "Запустить Live capture";
+        await session.DisposeAsync();
+        _viewModel.EndLiveCapture(status);
+        UpdateAnnotationControls();
+    }
+
     private void ShowAnalysisError(Exception exception)
     {
         _viewModel.ApplyAnalysisError(exception.Message);
@@ -491,11 +560,24 @@ public partial class MainWindow : Window
             MessageBoxImage.Error);
     }
 
+    private void ShowOnnxModelRequired()
+    {
+        OnnxDetectorStatusText.Text = "Сначала выберите существующую ONNX-модель.";
+        MessageBox.Show(
+            this,
+            "Для анализа требуется ONNX-модель. Выберите её в блоке «ONNX detector».",
+            "ONNX-модель не загружена",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
+    }
+
     private void MainWindow_Closed(object? sender, EventArgs e)
     {
         _settingsStore.Save(CaptureSettings());
         _annotationPreviewTimer.Stop();
-        _hsvDebounceTimer.Stop();
+        var liveSession = _liveSession;
+        _liveSession = null;
+        liveSession?.DisposeAsync().AsTask().GetAwaiter().GetResult();
         DisposeVideoSession();
         _onnxPanelDetector?.Dispose();
         _onnxPanelDetector = null;
@@ -514,7 +596,6 @@ public partial class MainWindow : Window
                 ? FindDefaultOnnxModelPath()
                 : settings.OnnxModelPath;
             OnnxModelPathText.Text = _onnxModelPath ?? "Модель не выбрана";
-            OnnxDetectorCheckBox.IsChecked = settings.UseOnnxDetector;
             _onnxMinimumConfidence = Math.Clamp(settings.OnnxMinimumConfidence, 0.05, 0.95);
             _onnxMinimumAspectRatio = Math.Clamp(settings.OnnxMinimumAspectRatio, 1, 30);
             UpdateOnnxGateSummary();
@@ -523,14 +604,6 @@ public partial class MainWindow : Window
                 ? settings.DatasetSplit
                 : DatasetSplit.Train;
             SelectDatasetSplit(split);
-
-            // Сначала расширяем Hue-диапазон, чтобы независимые setters не обрезали сохранённую пару min/max.
-            _viewModel.MinimumHue = 0;
-            _viewModel.MaximumHue = 179;
-            _viewModel.MinimumHue = settings.MinimumHue;
-            _viewModel.MaximumHue = settings.MaximumHue;
-            _viewModel.MinimumSaturation = settings.MinimumSaturation;
-            _viewModel.MinimumValue = settings.MinimumValue;
 
             _playbackSpeedIndex = Math.Clamp(settings.PlaybackSpeedIndex, 0, PlaybackSpeeds.Length - 1);
             _playbackSpeed = PlaybackSpeeds[_playbackSpeedIndex];
@@ -550,13 +623,8 @@ public partial class MainWindow : Window
         DatasetSplit = GetSelectedSplit(),
         IsAnnotationModeEnabled = AnnotationModeCheckBox.IsChecked == true,
         OnnxModelPath = _onnxModelPath,
-        UseOnnxDetector = OnnxDetectorCheckBox.IsChecked == true && _panelDetector is OnnxPanelDetector,
         OnnxMinimumConfidence = _onnxMinimumConfidence,
         OnnxMinimumAspectRatio = _onnxMinimumAspectRatio,
-        MinimumHue = _viewModel.MinimumHue,
-        MaximumHue = _viewModel.MaximumHue,
-        MinimumSaturation = _viewModel.MinimumSaturation,
-        MinimumValue = _viewModel.MinimumValue,
         PlaybackSpeedIndex = _playbackSpeedIndex
     };
 
@@ -569,22 +637,12 @@ public partial class MainWindow : Window
         DatasetSplitComboBox.SelectedItem = item ?? DatasetSplitComboBox.Items[0];
     }
 
-    private IPanelDetector CreateLegacyPanelDetector() =>
-        new PanelDetector(_viewModel.CreatePanelDetectorOptions());
-
-    private async Task RestoreDetectorAsync(bool useOnnxDetector)
+    private async Task RestoreDetectorAsync()
     {
-        _panelDetector = CreateLegacyPanelDetector();
-        SetDetectorUi(isOnnxActive: false);
-        if (!useOnnxDetector)
-        {
-            return;
-        }
-
         if (string.IsNullOrWhiteSpace(_onnxModelPath) || !File.Exists(_onnxModelPath))
         {
-            SetOnnxCheckBox(false);
-            OnnxDetectorStatusText.Text = "Сохранённая ONNX-модель не найдена; используется legacy OpenCV detector.";
+            _panelDetector = null;
+            OnnxDetectorStatusText.Text = "ONNX-модель не найдена. Выберите существующий .onnx файл.";
             return;
         }
 
@@ -612,31 +670,7 @@ public partial class MainWindow : Window
 
         _onnxModelPath = Path.GetFullPath(dialog.FileName);
         OnnxModelPathText.Text = _onnxModelPath;
-        SetOnnxCheckBox(true);
         await ActivateOnnxDetectorAsync(reanalyzeCurrentSource: true);
-    }
-
-    private async void OnnxDetectorMode_Changed(object sender, RoutedEventArgs e)
-    {
-        if (_isRestoringSettings || !IsLoaded)
-        {
-            return;
-        }
-
-        if (_isFrameTransitionActive)
-        {
-            SetOnnxCheckBox(_panelDetector is OnnxPanelDetector);
-            OnnxDetectorStatusText.Text = "Дождитесь завершения анализа текущего кадра.";
-            return;
-        }
-
-        if (OnnxDetectorCheckBox.IsChecked == true)
-        {
-            await ActivateOnnxDetectorAsync(reanalyzeCurrentSource: true);
-            return;
-        }
-
-        await ActivateLegacyDetectorAsync(reanalyzeCurrentSource: true);
     }
 
     private async void ConfigureOnnxGate_Click(object sender, RoutedEventArgs e)
@@ -659,7 +693,7 @@ public partial class MainWindow : Window
         _onnxMinimumConfidence = dialog.MinimumConfidence;
         _onnxMinimumAspectRatio = dialog.MinimumAspectRatio;
         UpdateOnnxGateSummary();
-        if (_panelDetector is OnnxPanelDetector)
+        if (_onnxPanelDetector is not null)
         {
             await ActivateOnnxDetectorAsync(reanalyzeCurrentSource: true);
         }
@@ -669,7 +703,6 @@ public partial class MainWindow : Window
     {
         if (string.IsNullOrWhiteSpace(_onnxModelPath) || !File.Exists(_onnxModelPath))
         {
-            SetOnnxCheckBox(false);
             OnnxDetectorStatusText.Text = "Выберите существующий .onnx файл.";
             return;
         }
@@ -692,12 +725,10 @@ public partial class MainWindow : Window
             _onnxPanelDetector = detector;
             await ReplaceActiveDetectorAsync(detector, reanalyzeCurrentSource);
             previous?.Dispose();
-            SetOnnxCheckBox(true);
             OnnxDetectorStatusText.Text = $"Модель загружена · {detector.ProviderName} · 1024 × 1024.";
         }
         catch (Exception exception)
         {
-            SetOnnxCheckBox(_panelDetector is OnnxPanelDetector);
             OnnxDetectorStatusText.Text = $"ONNX не загружен: {exception.Message}";
             MessageBox.Show(
                 this,
@@ -712,20 +743,10 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task ActivateLegacyDetectorAsync(bool reanalyzeCurrentSource)
-    {
-        var previous = _onnxPanelDetector;
-        _onnxPanelDetector = null;
-        await ReplaceActiveDetectorAsync(CreateLegacyPanelDetector(), reanalyzeCurrentSource);
-        previous?.Dispose();
-        SetDetectorUi(isOnnxActive: false);
-        OnnxDetectorStatusText.Text = "Используется legacy OpenCV detector; HSV Lab снова активен.";
-    }
-
     private async Task ReplaceActiveDetectorAsync(IPanelDetector detector, bool reanalyzeCurrentSource)
     {
+        await StopLiveCaptureAsync("Live capture остановлен после смены detector");
         _panelDetector = detector;
-        SetDetectorUi(detector is OnnxPanelDetector);
         if (_videoSession is not null)
         {
             _videoSession.UpdateDetector(detector);
@@ -744,29 +765,8 @@ public partial class MainWindow : Window
         }
     }
 
-    private void SetDetectorUi(bool isOnnxActive)
-    {
-        _viewModel.SetOnnxDetectorActive(isOnnxActive);
-        HsvLabPanel.IsEnabled = !isOnnxActive;
-        HsvLabPanel.Opacity = isOnnxActive ? 0.55 : 1;
-    }
-
-    private void SetOnnxCheckBox(bool isChecked)
-    {
-        _isRestoringSettings = true;
-        try
-        {
-            OnnxDetectorCheckBox.IsChecked = isChecked;
-        }
-        finally
-        {
-            _isRestoringSettings = false;
-        }
-    }
-
     private void SetOnnxControlsEnabled(bool isEnabled)
     {
-        OnnxDetectorCheckBox.IsEnabled = isEnabled;
         ChooseOnnxModelButton.IsEnabled = isEnabled;
         ConfigureOnnxGateButton.IsEnabled = isEnabled;
     }
@@ -963,9 +963,9 @@ public partial class MainWindow : Window
             var corners = kind == ObbAnnotationKind.Negative
                 ? null
                 : _annotationOverlay!.GetCorners();
-            var legacyDetection = _currentDetection is null
+            var detectorProposal = _currentDetection is null
                 ? null
-                : new LegacyDetectionMetadata(
+                : new DetectorProposalMetadata(
                     _currentDetection.IsDetected,
                     _currentDetection.Confidence,
                     _currentDetection.Reason,
@@ -979,7 +979,7 @@ public partial class MainWindow : Window
                 _viewModel.SourcePreview.PixelHeight,
                 framePng,
                 corners,
-                legacyDetection);
+                detectorProposal);
             var result = await _datasetWriter.SaveAsync(_datasetRoot!, sample);
             await RefreshExistingAnnotationAsync();
             await RefreshTimelineAnnotationsAsync();

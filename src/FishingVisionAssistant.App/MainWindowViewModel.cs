@@ -22,6 +22,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string _panelReason = "Ожидание кадра";
     private string _pipelineLatency = "—";
     private string _decodeLatency = "—";
+    private string _inputLatencyLabel = "Decode";
     private string _preprocessLatency = "—";
     private string _inferenceLatency = "—";
     private string _postprocessLatency = "—";
@@ -31,12 +32,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string _framePosition = "—";
     private string _videoPosition = "—";
     private string _playbackSpeedText = "1×";
-    private string _diagnosticPreviewTitle = "HSV-маска рамки";
+    private string _diagnosticPreviewTitle = "Диагностика ONNX";
     private double _panelConfidence;
-    private double _minimumHue = 115;
-    private double _maximumHue = 145;
-    private double _minimumSaturation = 141;
-    private double _minimumValue = 59;
     private double _timelineMaximum = 1;
     private double _timelineValue;
     private bool _isVideoLoaded;
@@ -139,30 +136,6 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     public string PanelConfidenceText => PanelConfidence.ToString("P0");
 
-    public double MinimumHue
-    {
-        get => _minimumHue;
-        set => SetField(ref _minimumHue, Math.Clamp(Math.Round(value), 0, MaximumHue - 1));
-    }
-
-    public double MaximumHue
-    {
-        get => _maximumHue;
-        set => SetField(ref _maximumHue, Math.Clamp(Math.Round(value), MinimumHue + 1, 179));
-    }
-
-    public double MinimumSaturation
-    {
-        get => _minimumSaturation;
-        set => SetField(ref _minimumSaturation, Math.Clamp(Math.Round(value), 0, 255));
-    }
-
-    public double MinimumValue
-    {
-        get => _minimumValue;
-        set => SetField(ref _minimumValue, Math.Clamp(Math.Round(value), 0, 255));
-    }
-
     public double WhiteZoneConfidence => 0;
 
     public string WhiteZoneConfidenceText => "0 %";
@@ -205,6 +178,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     {
         get => _decodeLatency;
         private set => SetField(ref _decodeLatency, value);
+    }
+
+    public string InputLatencyLabel
+    {
+        get => _inputLatencyLabel;
+        private set => SetField(ref _inputLatencyLabel, value);
     }
 
     public string PreprocessLatency
@@ -280,6 +259,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public void BeginImageAnalysis(string path)
     {
         ResetVideoState();
+        InputLatencyLabel = "Decode";
         SourcePath = path;
         SourceStatus = $"Анализируется кадр: {Path.GetFileName(path)}";
         PreviewTitle = "Обработка…";
@@ -312,6 +292,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public void BeginVideoOpen(string path)
     {
         ResetVideoState();
+        InputLatencyLabel = "Decode";
         SourcePath = path;
         SourceStatus = $"Открывается видео: {Path.GetFileName(path)}";
         PreviewTitle = "Чтение метаданных…";
@@ -332,6 +313,63 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         PreviewTitle = "Декодирование первого кадра…";
         IsVideoLoaded = true;
         IsBusy = false;
+    }
+
+    /// <summary>
+    /// Переводит Frame Inspector в режим непрерывного live-источника.
+    /// </summary>
+    public void BeginLiveCapture(FrameSourceDescriptor descriptor)
+    {
+        ResetVideoState();
+        ResetDetectionResult();
+        SourcePath = descriptor.DisplayName;
+        SourceStatus = "Live capture запущен · обрабатывается только самый свежий кадр";
+        PreviewTitle = "Ожидание первого live-кадра…";
+        PreviewHint = string.Empty;
+        PanelReason = "Ожидание live inference";
+        VideoPosition = "LIVE";
+        InputLatencyLabel = "Capture + очередь";
+    }
+
+    /// <summary>
+    /// Обновляет live-метрики на каждом inference, а тяжёлые preview только на diagnostic-кадрах.
+    /// </summary>
+    public void ApplyLiveFrame(LiveFrameAnalysis analysis, PerformanceSnapshot performance)
+    {
+        var result = analysis.PanelDetection;
+        PreviewTitle = string.Empty;
+        PreviewHint = string.Empty;
+        PanelReason = result.Reason;
+        PanelConfidence = result.Confidence;
+        if (analysis.IncludesDiagnostics && result.OverlayPng.Length > 0 && result.MaskPng.Length > 0)
+        {
+            SourcePreview = DecodeImage(result.OverlayPng);
+            MaskPreview = DecodeImage(result.MaskPng);
+            RectifiedPreview = result.RectifiedPanelPng is null ? null : DecodeImage(result.RectifiedPanelPng);
+        }
+
+        PreprocessLatency = FormatLatency(result.Timings?.Preprocess);
+        InferenceLatency = FormatLatency(result.Timings?.Inference);
+        PostprocessLatency = FormatLatency(result.Timings?.Postprocess);
+        PipelineLatency = FormatLatency(analysis.EndToEndTime);
+        DecodeLatency = FormatLatency(analysis.QueueTime);
+        PipelineFps = performance.SampleCount == 0 ? "—" : $"{performance.FramesPerSecond:F1}";
+        PerformanceSummary = performance.SampleCount == 0
+            ? $"live cold {performance.ColdStartMilliseconds:F1} мс · ожидание прогретых кадров"
+            : $"live cold {performance.ColdStartMilliseconds:F1} · median {performance.MedianMilliseconds:F1} · " +
+              $"p95 {performance.Percentile95Milliseconds:F1} мс";
+        CacheStatus = analysis.IncludesDiagnostics ? "live · diagnostic frame" : "live · fast path";
+        FramePosition = $"live #{analysis.SequenceNumber:N0}";
+        VideoPosition = "LIVE · latest-frame";
+        SourceStatus = result.IsDetected
+            ? "Live capture · рамка найдена"
+            : "Live capture · рамка не найдена";
+    }
+
+    public void EndLiveCapture(string status)
+    {
+        SourceStatus = status;
+        CacheStatus = "live остановлен";
     }
 
     public void BeginFrameAnalysis(long frameIndex)
@@ -397,25 +435,6 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     }
 
     public void SetPlaybackSpeed(double speed) => PlaybackSpeedText = $"{speed:0.##}×";
-
-    public void SetOnnxDetectorActive(bool isActive) =>
-        DiagnosticPreviewTitle = isActive ? "Диагностика ONNX" : "HSV-маска рамки";
-
-    public PanelDetectorOptions CreatePanelDetectorOptions() => new()
-    {
-        MinimumHue = (int)MinimumHue,
-        MaximumHue = (int)MaximumHue,
-        MinimumSaturation = (int)MinimumSaturation,
-        MinimumValue = (int)MinimumValue
-    };
-
-    public void ResetHsv()
-    {
-        MinimumHue = 115;
-        MaximumHue = 145;
-        MinimumSaturation = 141;
-        MinimumValue = 59;
-    }
 
     public void SetTrainingBoundsPreview(byte[]? encodedPreview) =>
         TrainingBoundsPreview = encodedPreview is null ? null : DecodeImage(encodedPreview);

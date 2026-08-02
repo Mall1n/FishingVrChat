@@ -3,6 +3,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using FishingVisionAssistant.Core;
 
@@ -58,7 +59,7 @@ public sealed partial class ObbDatasetWriter
             sample.ImageWidth,
             sample.ImageHeight,
             orderedCorners,
-            sample.LegacyDetection,
+            sample.DetectorProposal,
             DateTimeOffset.UtcNow);
         var json = JsonSerializer.Serialize(metadata, JsonOptions);
         await WriteTextWithDirectoryRetryAsync(metadataPath, json, cancellationToken);
@@ -419,12 +420,12 @@ public sealed record ObbDatasetSample(
     int ImageHeight,
     byte[] FramePng,
     IReadOnlyList<ImagePoint>? Corners,
-    LegacyDetectionMetadata? LegacyDetection);
+    DetectorProposalMetadata? DetectorProposal);
 
 /// <summary>
-/// Фиксирует предложение legacy detector для анализа accepted, corrected и hard-negative samples.
+/// Фиксирует предложение активного detector для анализа accepted, corrected и hard-negative samples.
 /// </summary>
-public sealed record LegacyDetectionMetadata(
+public sealed record DetectorProposalMetadata(
     bool IsDetected,
     double Confidence,
     string Reason,
@@ -442,7 +443,8 @@ public sealed record ObbDatasetMetadata(
     int ImageWidth,
     int ImageHeight,
     IReadOnlyList<ImagePoint> Corners,
-    LegacyDetectionMetadata? LegacyDetection,
+    // Старое имя JSON-поля сохраняет чтение уже собранного dataset после удаления legacy detector.
+    [property: JsonPropertyName("legacyDetection")] DetectorProposalMetadata? DetectorProposal,
     DateTimeOffset CreatedAtUtc);
 
 /// <summary>
