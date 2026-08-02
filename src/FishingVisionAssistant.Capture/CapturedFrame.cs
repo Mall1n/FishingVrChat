@@ -6,6 +6,8 @@ namespace FishingVisionAssistant.Capture;
 public sealed record CapturedFrame(
     long SequenceNumber,
     DateTimeOffset Timestamp,
+    TimeSpan CaptureCopyTime,
+    DateTimeOffset ReadyTimestamp,
     int Width,
     int Height,
     int Stride,

@@ -176,7 +176,8 @@ public sealed class LiveAnalysisSession : IAsyncDisposable
                 resultHandler(new LiveFrameAnalysis(
                     frame.SequenceNumber,
                     detection,
-                    analysisStarted - frame.Timestamp,
+                    frame.CaptureCopyTime,
+                    analysisStarted - frame.ReadyTimestamp,
                     completed - frame.Timestamp,
                     requestedPreviewOutputs,
                     requestedPreviewOutputs.HasFlag(PanelPreviewOutputs.SourceOverlay) ? frame : null));

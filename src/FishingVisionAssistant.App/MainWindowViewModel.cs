@@ -23,6 +23,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string _panelReason = "Ожидание кадра";
     private string _pipelineLatency = "—";
     private string _decodeLatency = "—";
+    private string _queueWaitLatency = "—";
     private string _inputLatencyLabel = "Decode";
     private string _preprocessLatency = "—";
     private string _inferenceLatency = "—";
@@ -182,6 +183,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         private set => SetField(ref _decodeLatency, value);
     }
 
+    public string QueueWaitLatency
+    {
+        get => _queueWaitLatency;
+        private set => SetField(ref _queueWaitLatency, value);
+    }
+
     public string InputLatencyLabel
     {
         get => _inputLatencyLabel;
@@ -330,7 +337,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         PreviewHint = string.Empty;
         PanelReason = "Ожидание live inference";
         VideoPosition = "LIVE";
-        InputLatencyLabel = "Capture + очередь";
+        InputLatencyLabel = "GPU → CPU copy";
     }
 
     /// <summary>
@@ -376,7 +383,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         InferenceLatency = FormatLatency(result.Timings?.Inference);
         PostprocessLatency = FormatLatency(result.Timings?.Postprocess);
         PipelineLatency = FormatLatency(analysis.EndToEndTime);
-        DecodeLatency = FormatLatency(analysis.QueueTime);
+        DecodeLatency = FormatLatency(analysis.CaptureCopyTime);
+        QueueWaitLatency = FormatLatency(analysis.QueueTime);
         PipelineFps = performance.SampleCount == 0 ? "—" : $"{performance.FramesPerSecond:F1}";
         PerformanceSummary = performance.SampleCount == 0
             ? $"live cold {performance.ColdStartMilliseconds:F1} мс · ожидание прогретых кадров"
@@ -595,6 +603,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private void ResetTimingBreakdown()
     {
         DecodeLatency = "—";
+        QueueWaitLatency = "—";
         PreprocessLatency = "—";
         InferenceLatency = "—";
         PostprocessLatency = "—";

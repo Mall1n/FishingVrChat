@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using System.Diagnostics;
 using Windows.Graphics.Capture;
 using Windows.Graphics.DirectX;
 using Windows.Graphics.DirectX.Direct3D11;
@@ -142,6 +143,7 @@ public sealed class WindowsGraphicsCaptureFrameSource : IFrameSource, IPausableF
     private async Task CopyLatestFrameAsync(Direct3D11CaptureFramePool sender)
     {
         var captureTimestamp = DateTimeOffset.UtcNow;
+        var copyStartedAt = Stopwatch.GetTimestamp();
         try
         {
             using var frame = sender.TryGetNextFrame();
@@ -170,10 +172,13 @@ public sealed class WindowsGraphicsCaptureFrameSource : IFrameSource, IPausableF
             using var reader = DataReader.FromBuffer(buffer);
             var pixels = new byte[byteCount];
             reader.ReadBytes(pixels);
+            var readyTimestamp = DateTimeOffset.UtcNow;
 
             _frames.Writer.TryWrite(new CapturedFrame(
                 Interlocked.Increment(ref _sequenceNumber),
                 captureTimestamp,
+                Stopwatch.GetElapsedTime(copyStartedAt),
+                readyTimestamp,
                 bgraBitmap.PixelWidth,
                 bgraBitmap.PixelHeight,
                 checked(bgraBitmap.PixelWidth * 4),

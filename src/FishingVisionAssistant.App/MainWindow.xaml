@@ -163,9 +163,14 @@
                 <TextBlock HorizontalAlignment="Right" Text="{Binding PipelineLatency}" />
               </DockPanel>
               <DockPanel Margin="0,8,0,0"
-                         ToolTip="Offline: чтение кадра из видео. Live: получение кадра с GPU и ожидание свободного detector.">
+                         ToolTip="Offline: чтение кадра из видео. Live: копирование capture surface с GPU в CPU byte buffer, включая преобразование формата.">
                 <TextBlock Text="{Binding InputLatencyLabel}" />
                 <TextBlock HorizontalAlignment="Right" Text="{Binding DecodeLatency}" />
+              </DockPanel>
+              <DockPanel Margin="0,8,0,0"
+                         ToolTip="Время между готовностью CPU byte buffer и началом анализа detector. Для offline-видео не используется.">
+                <TextBlock Text="Очередь (live)" />
+                <TextBlock HorizontalAlignment="Right" Text="{Binding QueueWaitLatency}" />
               </DockPanel>
               <DockPanel Margin="0,8,0,0"
                          ToolTip="Подготовка входа модели: BGRA/BGR-преобразование, letterbox, RGB-нормализация и создание tensor.">

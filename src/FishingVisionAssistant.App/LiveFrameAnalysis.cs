@@ -9,6 +9,7 @@ namespace FishingVisionAssistant.App;
 public sealed record LiveFrameAnalysis(
     long SequenceNumber,
     PanelDetectionResult PanelDetection,
+    TimeSpan CaptureCopyTime,
     TimeSpan QueueTime,
     TimeSpan EndToEndTime,
     PanelPreviewOutputs PreviewOutputs,
