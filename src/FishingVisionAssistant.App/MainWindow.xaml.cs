@@ -44,6 +44,7 @@ public partial class MainWindow : Window
     private PerformanceSnapshot? _pendingLivePerformance;
     private bool _isLiveUiUpdateScheduled;
     private PerformanceStatistics _performanceStatistics = new();
+    private readonly FrameInspectorSmoother _frameInspectorSmoother = new();
     private VideoAnalysisSession? _videoSession;
     private LiveAnalysisSession? _liveSession;
     private PanelDetectionResult? _currentDetection;
@@ -211,12 +212,14 @@ public partial class MainWindow : Window
             DisposeVideoSession();
             ResetCurrentDetection();
             _currentImagePath = null;
+            var livePreviewSettings = GetEffectiveLivePreviewSettings();
             var session = new LiveAnalysisSession(
                 new WindowsGraphicsCaptureFrameSource(item),
                 detector,
-                GetEffectiveLivePreviewSettings());
+                livePreviewSettings);
             _liveSession = session;
             _performanceStatistics = new PerformanceStatistics();
+            _frameInspectorSmoother.Clear();
             _viewModel.BeginLiveCapture(session.Descriptor);
             LiveCaptureButton.Content = "Остановить Live capture";
             PauseLiveCaptureButton.Content = "⏸";
@@ -566,8 +569,11 @@ public partial class MainWindow : Window
         }
 
         var previewSettings = GetEffectiveLivePreviewSettings();
+        var displayedAnalysis = FrameInspectorSmoothingCheckBox.IsChecked == true
+            ? _frameInspectorSmoother.Add(analysis)
+            : analysis;
         _viewModel.ApplyLiveFrame(
-            analysis,
+            displayedAnalysis,
             performance,
             previewSettings);
         if (analysis.SourcePreviewFrame is not null && previewSettings.UpdateSourcePreview)
@@ -645,6 +651,11 @@ public partial class MainWindow : Window
             _pendingLiveUiFrame = null;
             _pendingLivePerformance = null;
         }
+    }
+
+    private void FrameInspectorSmoothing_Changed(object sender, RoutedEventArgs e)
+    {
+        _frameInspectorSmoother.Clear();
     }
 
     private async void HandleLiveCaptureError(LiveAnalysisSession session, Exception exception)
@@ -749,10 +760,11 @@ public partial class MainWindow : Window
                 settings.IsRectifiedPreviewEnabled,
                 settings.IsOnnxDiagnosticPreviewEnabled,
                 NormalizeLivePreviewInterval(settings.LivePreviewRefreshEveryNFrames));
-            PauseAllPreviewsCheckBox.IsChecked = false;
+            PauseAllPreviewsCheckBox.IsChecked = settings.IsAllPreviewsPaused;
             SourcePreviewCheckBox.IsChecked = _livePreviewSettings.UpdateSourcePreview;
             RectifiedPreviewCheckBox.IsChecked = _livePreviewSettings.UpdateRectifiedPreview;
             OnnxDiagnosticPreviewCheckBox.IsChecked = _livePreviewSettings.UpdateOnnxDiagnosticPreview;
+            FrameInspectorSmoothingCheckBox.IsChecked = settings.IsFrameInspectorSmoothingEnabled;
             SelectLivePreviewInterval(_livePreviewSettings.RefreshEveryNFrames);
             UpdateLivePreviewSettingsSummary();
 
@@ -785,6 +797,8 @@ public partial class MainWindow : Window
         IsSourcePreviewEnabled = _livePreviewSettings.UpdateSourcePreview,
         IsRectifiedPreviewEnabled = _livePreviewSettings.UpdateRectifiedPreview,
         IsOnnxDiagnosticPreviewEnabled = _livePreviewSettings.UpdateOnnxDiagnosticPreview,
+        IsAllPreviewsPaused = PauseAllPreviewsCheckBox.IsChecked == true,
+        IsFrameInspectorSmoothingEnabled = FrameInspectorSmoothingCheckBox.IsChecked == true,
         LivePreviewRefreshEveryNFrames = _livePreviewSettings.RefreshEveryNFrames,
         PlaybackSpeedIndex = _playbackSpeedIndex
     };

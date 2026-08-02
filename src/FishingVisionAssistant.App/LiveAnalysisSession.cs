@@ -208,4 +208,5 @@ public sealed class LiveAnalysisSession : IAsyncDisposable
 
         return settings;
     }
+
 }

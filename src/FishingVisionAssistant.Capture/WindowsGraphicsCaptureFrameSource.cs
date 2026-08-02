@@ -1,23 +1,21 @@
-using System.Threading.Channels;
 using System.Diagnostics;
+using System.Threading.Channels;
 using Windows.Graphics.Capture;
 using Windows.Graphics.DirectX;
-using Windows.Graphics.DirectX.Direct3D11;
-using Windows.Graphics.Imaging;
-using Windows.Storage.Streams;
 
 namespace FishingVisionAssistant.Capture;
 
 /// <summary>
-/// Захватывает выбранное окно или монитор через Windows.Graphics.Capture и хранит только свежий кадр.
+/// Захватывает выбранное окно или монитор через Windows.Graphics.Capture и извлекает BGRA32 через D3D11 staging textures.
 /// </summary>
 public sealed class WindowsGraphicsCaptureFrameSource : IFrameSource, IPausableFrameSource
 {
     private readonly GraphicsCaptureItem _item;
-    private readonly IDirect3DDevice _device;
+    private readonly Windows.Graphics.DirectX.Direct3D11.IDirect3DDevice _device;
     private readonly Direct3D11CaptureFramePool _framePool;
     private readonly GraphicsCaptureSession _session;
     private readonly Channel<CapturedFrame> _frames;
+    private readonly CaptureReadbackBridge _readbackBridge = new();
     private readonly object _sync = new();
     private Task? _copyTask;
     private long _sequenceNumber;
@@ -115,6 +113,7 @@ public sealed class WindowsGraphicsCaptureFrameSource : IFrameSource, IPausableF
             await copyTask;
         }
 
+        _readbackBridge.Dispose();
         _session.Dispose();
         _framePool.Dispose();
         _device.Dispose();
@@ -140,7 +139,7 @@ public sealed class WindowsGraphicsCaptureFrameSource : IFrameSource, IPausableF
         }
     }
 
-    private async Task CopyLatestFrameAsync(Direct3D11CaptureFramePool sender)
+    private Task CopyLatestFrameAsync(Direct3D11CaptureFramePool sender)
     {
         var captureTimestamp = DateTimeOffset.UtcNow;
         var copyStartedAt = Stopwatch.GetTimestamp();
@@ -149,39 +148,31 @@ public sealed class WindowsGraphicsCaptureFrameSource : IFrameSource, IPausableF
             using var frame = sender.TryGetNextFrame();
             if (frame is null || _isDisposed)
             {
-                return;
+                return Task.CompletedTask;
             }
 
             var contentSize = frame.ContentSize;
             if (contentSize.Width <= 0 || contentSize.Height <= 0)
             {
-                return;
+                return Task.CompletedTask;
             }
 
-            using var bitmap = await SoftwareBitmap.CreateCopyFromSurfaceAsync(
-                frame.Surface,
-                BitmapAlphaMode.Ignore);
-            using var converted = bitmap.BitmapPixelFormat == BitmapPixelFormat.Bgra8
-                ? null
-                : SoftwareBitmap.Convert(bitmap, BitmapPixelFormat.Bgra8, BitmapAlphaMode.Ignore);
-            var bgraBitmap = converted ?? bitmap;
-            var byteCount = checked((uint)(bgraBitmap.PixelWidth * bgraBitmap.PixelHeight * 4));
-            var buffer = new Windows.Storage.Streams.Buffer(byteCount);
-            bgraBitmap.CopyToBuffer(buffer);
-            buffer.Length = byteCount;
-            using var reader = DataReader.FromBuffer(buffer);
-            var pixels = new byte[byteCount];
-            reader.ReadBytes(pixels);
-            var readyTimestamp = DateTimeOffset.UtcNow;
+            var sourceToken = Interlocked.Increment(ref _sequenceNumber);
+            var requiredBytes = checked(contentSize.Width * contentSize.Height * 4);
+            var pixels = GC.AllocateUninitializedArray<byte>(requiredBytes);
 
+            var readback = _readbackBridge.Read(
+                frame.Surface,
+                pixels);
+            var readyTimestamp = DateTimeOffset.UtcNow;
             _frames.Writer.TryWrite(new CapturedFrame(
-                Interlocked.Increment(ref _sequenceNumber),
+                sourceToken,
                 captureTimestamp,
                 Stopwatch.GetElapsedTime(copyStartedAt),
                 readyTimestamp,
-                bgraBitmap.PixelWidth,
-                bgraBitmap.PixelHeight,
-                checked(bgraBitmap.PixelWidth * 4),
+                readback.Width,
+                readback.Height,
+                readback.Stride,
                 FramePixelFormat.Bgra32,
                 pixels));
         }
@@ -192,6 +183,8 @@ public sealed class WindowsGraphicsCaptureFrameSource : IFrameSource, IPausableF
         catch (Exception) when (_isDisposed)
         {
         }
+
+        return Task.CompletedTask;
     }
 
     private void Item_Closed(GraphicsCaptureItem sender, object args) => _frames.Writer.TryComplete();

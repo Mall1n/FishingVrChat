@@ -5,6 +5,12 @@
     <ProjectReference Include="..\FishingVisionAssistant.Capture\FishingVisionAssistant.Capture.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="..\FishingVisionAssistant.CaptureBridge\artifacts\native\$(Configuration)\FishingVisionAssistant.CaptureBridge.dll"
+             Link="FishingVisionAssistant.CaptureBridge.dll"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>

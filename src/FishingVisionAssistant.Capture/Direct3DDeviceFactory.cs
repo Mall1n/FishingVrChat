@@ -26,11 +26,31 @@ internal static class Direct3DDeviceFactory
             out var immediateContext);
         Marshal.ThrowExceptionForHR(result);
 
+        try
+        {
+            return CreateFromD3D11Device(d3dDevice);
+        }
+        finally
+        {
+            if (immediateContext != IntPtr.Zero)
+            {
+                Marshal.Release(immediateContext);
+            }
+
+            if (d3dDevice != IntPtr.Zero)
+            {
+                Marshal.Release(d3dDevice);
+            }
+        }
+    }
+
+    private static IDirect3DDevice CreateFromD3D11Device(IntPtr d3dDevice)
+    {
         var dxgiDevice = IntPtr.Zero;
         var inspectable = IntPtr.Zero;
         try
         {
-            result = Marshal.QueryInterface(d3dDevice, in DxgiDeviceInterfaceId, out dxgiDevice);
+            var result = Marshal.QueryInterface(d3dDevice, in DxgiDeviceInterfaceId, out dxgiDevice);
             Marshal.ThrowExceptionForHR(result);
             result = CreateDirect3D11DeviceFromDXGIDevice(dxgiDevice, out inspectable);
             Marshal.ThrowExceptionForHR(result);
@@ -46,16 +66,6 @@ internal static class Direct3DDeviceFactory
             if (dxgiDevice != IntPtr.Zero)
             {
                 Marshal.Release(dxgiDevice);
-            }
-
-            if (immediateContext != IntPtr.Zero)
-            {
-                Marshal.Release(immediateContext);
-            }
-
-            if (d3dDevice != IntPtr.Zero)
-            {
-                Marshal.Release(d3dDevice);
             }
         }
     }

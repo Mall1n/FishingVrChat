@@ -1,7 +1,7 @@
 namespace FishingVisionAssistant.Capture;
 
 /// <summary>
-/// Представляет кадр с временной меткой и принадлежащим ему pixel buffer.
+/// Представляет CPU-кадр с временной меткой и BGRA32 pixel buffer.
 /// </summary>
 public sealed record CapturedFrame(
     long SequenceNumber,

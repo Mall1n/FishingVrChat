@@ -273,3 +273,13 @@ Offline Frame Inspector, ONNX detector и полный workflow OBB-размет
 Первый dataset, baseline, ONNX detector через Windows ML self-contained и Windows.Graphics.Capture live MVP готовы. Live pipeline обрабатывает каждый доступный detector кадр и отбрасывает устаревшие необработанные кадры как перед inference, так и перед WPF render. Capture session можно приостановить без закрытия источника. Исходный BGRA-кадр обновляет переиспользуемый `WriteableBitmap`, а OBB рисуется отдельным WPF overlay без PNG encode/decode. Выпрямленная шкала и ONNX-диагностика остаются независимыми detector output; общий cadence выбирается как каждый 1-й, 2-й, 4-й или 8-й обработанный кадр.
 
 Следующий шаг — проверить через приложение режим Auto, фактически выбранный backend, стабильность live capture и реальные `Capture + очередь`, `Inference`, `Postprocess` и end-to-end latency. После подтверждения DirectML можно реализовывать `GameElementDetector`, tracking и настройку периодичности полного OBB inference. До появления tracking запуск ONNX «раз в N кадров» не используется, иначе между inference нечем надёжно обновлять положение рамки.
+
+## 11. Эксперимент GPU-native live capture — остановлен
+
+Был реализован экспериментальный путь `Windows.Graphics.Capture → D3D11On12 → D3D12/DirectML`, в котором полный кадр не должен был попадать в CPU. На практике `Direct3D11CaptureFramePool`, созданный на device из `D3D11On12CreateDevice`, выдавал ровно число кадров, равное числу буферов pool: при двух буферах live capture останавливался после кадров `#1` и `#2`.
+
+Это подтверждено диагностическим логом проекта и совпадает с опубликованным описанием проблемы Windows.Graphics.Capture + D3D11On12. Проверялись корректное владение `Direct3D11CaptureFrame`, `ReturnUnderlyingResource` с fence и `Flush` после `UnwrapUnderlyingResource`; ни одна из мер не изменила поведение. Поэтому экспериментальный bridge и native ONNX live inference удалены, чтобы не оставлять нестабильный runtime fallback.
+
+Вместо этого реализован стабильный путь `Windows.Graphics.Capture → native D3D11 staging texture → Map → BGRA32 buffer`. Он убирает промежуточные `SoftwareBitmap`, `Buffer` и `DataReader`.
+
+Коротко проверялся и режим ping-pong staging textures. Он не увеличил Pipeline FPS и добавил latency, потому что на этой связке `Map` не создал полезного параллелизма. Режим удалён, чтобы не оставлять настройку без измеримой пользы.

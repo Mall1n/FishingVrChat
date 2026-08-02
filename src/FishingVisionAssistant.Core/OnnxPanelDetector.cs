@@ -318,21 +318,56 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
         return candidates;
     }
 
+    private static IReadOnlyList<ObbCandidate> ReadPredictions(float[] rawPredictions)
+    {
+        if (rawPredictions.Length == 0 || rawPredictions.Length % ExpectedOutputColumns != 0)
+        {
+            throw new InvalidDataException("GPU bridge вернул ONNX output с недопустимой формой.");
+        }
+
+        var candidates = new List<ObbCandidate>(rawPredictions.Length / ExpectedOutputColumns);
+        for (var index = 0; index < rawPredictions.Length; index += ExpectedOutputColumns)
+        {
+            var candidate = new ObbCandidate(
+                rawPredictions[index],
+                rawPredictions[index + 1],
+                rawPredictions[index + 2],
+                rawPredictions[index + 3],
+                rawPredictions[index + 4],
+                (int)MathF.Round(rawPredictions[index + 5]),
+                rawPredictions[index + 6]);
+            if (candidate.IsFinite)
+            {
+                candidates.Add(candidate);
+            }
+        }
+
+        return candidates;
+    }
+
     private Mat CreateLetterbox(Mat source, out LetterboxTransform transform)
     {
-        var scale = Math.Min((double)_inputWidth / source.Width, (double)_inputHeight / source.Height);
-        var resizedWidth = Math.Max(1, (int)Math.Round(source.Width * scale));
-        var resizedHeight = Math.Max(1, (int)Math.Round(source.Height * scale));
-        var left = (int)Math.Round((_inputWidth - resizedWidth) / 2d - 0.1);
-        var top = (int)Math.Round((_inputHeight - resizedHeight) / 2d - 0.1);
+        transform = CreateLetterboxTransform(source.Width, source.Height);
+        var resizedWidth = Math.Max(1, (int)Math.Round(source.Width * transform.Scale));
+        var resizedHeight = Math.Max(1, (int)Math.Round(source.Height * transform.Scale));
 
         using var resized = new Mat();
         Cv2.Resize(source, resized, new Size(resizedWidth, resizedHeight), interpolation: InterpolationFlags.Linear);
         var letterbox = new Mat(new Size(_inputWidth, _inputHeight), MatType.CV_8UC3, new Scalar(114, 114, 114));
-        using var target = new Mat(letterbox, new Rect(left, top, resizedWidth, resizedHeight));
+        using var target = new Mat(letterbox, new Rect(transform.Left, transform.Top, resizedWidth, resizedHeight));
         resized.CopyTo(target);
-        transform = new LetterboxTransform(scale, left, top);
         return letterbox;
+    }
+
+    private LetterboxTransform CreateLetterboxTransform(int sourceWidth, int sourceHeight)
+    {
+        var scale = Math.Min((double)_inputWidth / sourceWidth, (double)_inputHeight / sourceHeight);
+        var resizedWidth = Math.Max(1, (int)Math.Round(sourceWidth * scale));
+        var resizedHeight = Math.Max(1, (int)Math.Round(sourceHeight * scale));
+        return new LetterboxTransform(
+            scale,
+            (int)Math.Round((_inputWidth - resizedWidth) / 2d - 0.1),
+            (int)Math.Round((_inputHeight - resizedHeight) / 2d - 0.1));
     }
 
     private bool IsAccepted(ObbCandidate candidate) =>
