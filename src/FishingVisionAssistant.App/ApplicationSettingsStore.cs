@@ -90,6 +90,10 @@ public sealed class ApplicationSettings
 
     public bool UseOnnxDetector { get; init; }
 
+    public double OnnxMinimumConfidence { get; init; } = 0.5;
+
+    public double OnnxMinimumAspectRatio { get; init; } = 10;
+
     public double MinimumHue { get; init; } = 115;
 
     public double MaximumHue { get; init; } = 145;

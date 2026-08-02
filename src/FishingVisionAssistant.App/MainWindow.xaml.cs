@@ -18,6 +18,8 @@ namespace FishingVisionAssistant.App;
 public partial class MainWindow : Window
 {
     private static readonly double[] PlaybackSpeeds = [0.25, 0.5, 1, 1.5, 2];
+    private const double DefaultOnnxMinimumConfidence = 0.5;
+    private const double DefaultOnnxMinimumAspectRatio = 10;
 
     private IPanelDetector _panelDetector;
     private readonly DispatcherTimer _hsvDebounceTimer = new(DispatcherPriority.Background)
@@ -52,6 +54,8 @@ public partial class MainWindow : Window
     private bool _isRestoringSettings;
     private string? _onnxModelPath;
     private OnnxPanelDetector? _onnxPanelDetector;
+    private double _onnxMinimumConfidence = DefaultOnnxMinimumConfidence;
+    private double _onnxMinimumAspectRatio = DefaultOnnxMinimumAspectRatio;
     private int _annotationPreviewVersion;
 
     public MainWindow()
@@ -503,6 +507,9 @@ public partial class MainWindow : Window
                 : settings.OnnxModelPath;
             OnnxModelPathText.Text = _onnxModelPath ?? "Модель не выбрана";
             OnnxDetectorCheckBox.IsChecked = settings.UseOnnxDetector;
+            _onnxMinimumConfidence = Math.Clamp(settings.OnnxMinimumConfidence, 0.05, 0.95);
+            _onnxMinimumAspectRatio = Math.Clamp(settings.OnnxMinimumAspectRatio, 1, 30);
+            UpdateOnnxGateSummary();
 
             var split = Enum.IsDefined(typeof(DatasetSplit), settings.DatasetSplit)
                 ? settings.DatasetSplit
@@ -536,6 +543,8 @@ public partial class MainWindow : Window
         IsAnnotationModeEnabled = AnnotationModeCheckBox.IsChecked == true,
         OnnxModelPath = _onnxModelPath,
         UseOnnxDetector = OnnxDetectorCheckBox.IsChecked == true && _panelDetector is OnnxPanelDetector,
+        OnnxMinimumConfidence = _onnxMinimumConfidence,
+        OnnxMinimumAspectRatio = _onnxMinimumAspectRatio,
         MinimumHue = _viewModel.MinimumHue,
         MaximumHue = _viewModel.MaximumHue,
         MinimumSaturation = _viewModel.MinimumSaturation,
@@ -622,6 +631,32 @@ public partial class MainWindow : Window
         await ActivateLegacyDetectorAsync(reanalyzeCurrentSource: true);
     }
 
+    private async void ConfigureOnnxGate_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isFrameTransitionActive)
+        {
+            OnnxDetectorStatusText.Text = "Дождитесь завершения анализа текущего кадра.";
+            return;
+        }
+
+        var dialog = new OnnxGateSettingsWindow(_onnxMinimumConfidence, _onnxMinimumAspectRatio)
+        {
+            Owner = this
+        };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        _onnxMinimumConfidence = dialog.MinimumConfidence;
+        _onnxMinimumAspectRatio = dialog.MinimumAspectRatio;
+        UpdateOnnxGateSummary();
+        if (_panelDetector is OnnxPanelDetector)
+        {
+            await ActivateOnnxDetectorAsync(reanalyzeCurrentSource: true);
+        }
+    }
+
     private async Task ActivateOnnxDetectorAsync(bool reanalyzeCurrentSource)
     {
         if (string.IsNullOrWhiteSpace(_onnxModelPath) || !File.Exists(_onnxModelPath))
@@ -640,8 +675,8 @@ public partial class MainWindow : Window
             var detector = await Task.Run(() => new OnnxPanelDetector(new OnnxPanelDetectorOptions
             {
                 ModelPath = modelPath,
-                MinimumConfidence = 0.5,
-                MinimumAspectRatio = 10,
+                MinimumConfidence = _onnxMinimumConfidence,
+                MinimumAspectRatio = _onnxMinimumAspectRatio,
                 ExecutionProvider = OnnxExecutionProvider.Cpu
             }));
 
@@ -725,6 +760,14 @@ public partial class MainWindow : Window
     {
         OnnxDetectorCheckBox.IsEnabled = isEnabled;
         ChooseOnnxModelButton.IsEnabled = isEnabled;
+        ConfigureOnnxGateButton.IsEnabled = isEnabled;
+    }
+
+    private void UpdateOnnxGateSummary()
+    {
+        OnnxGateSummaryText.Text =
+            $"Gate: confidence ≥ {_onnxMinimumConfidence:P0}, " +
+            $"aspect ratio ≥ {_onnxMinimumAspectRatio:F1}. Backend: CPU compatibility mode.";
     }
 
     private static string? FindDefaultOnnxModelPath()

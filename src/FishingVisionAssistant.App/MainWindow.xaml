@@ -316,6 +316,11 @@
                       Style="{StaticResource AnnotationButtonStyle}"
                       Click="ChooseOnnxModel_Click"
                       Content="Выбрать ONNX-модель" />
+              <Button x:Name="ConfigureOnnxGateButton"
+                      Margin="0,8,0,0"
+                      Style="{StaticResource AnnotationButtonStyle}"
+                      Click="ConfigureOnnxGate_Click"
+                      Content="Настройки Gate" />
               <TextBlock x:Name="OnnxModelPathText"
                          Margin="0,6,0,0"
                          FontSize="11"
@@ -328,7 +333,8 @@
                          Foreground="{StaticResource SecondaryTextBrush}"
                          Text="Используется legacy OpenCV detector."
                          TextWrapping="Wrap" />
-              <TextBlock Margin="0,7,0,0"
+              <TextBlock x:Name="OnnxGateSummaryText"
+                         Margin="0,7,0,0"
                          FontSize="11"
                          Foreground="{StaticResource SecondaryTextBrush}"
                          Text="Gate: confidence ≥ 50 %, aspect ratio ≥ 10. Backend: CPU compatibility mode."
