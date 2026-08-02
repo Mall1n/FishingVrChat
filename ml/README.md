@@ -48,7 +48,7 @@ powershell -ExecutionPolicy Bypass -File ml/setup.ps1
 
 Результаты сохраняются в последовательные папки `artifacts/ml/fishing-panel-obb-N`, например `fishing-panel-obb-3`. Главный файл — `weights/best.pt`. Ultralytics также сохраняет графики метрик, confusion matrix и изображения Validation с предсказаниями.
 
-После каждого успешного Train pipeline создаёт соответствующий отчёт `artifacts/ml/logs/stats-N.txt`: `fishing-panel-obb-3` создаёт `stats-3.txt`. Прерванный запуск может оставить пропуск в нумерации, но номер уже не используется повторно. В отчёте сохранены лучшая и последняя завершённая Validation-эпохи, пути к checkpoint и ключевые метрики.
+После каждого успешного Train pipeline создаёт соответствующий отчёт `artifacts/ml/logs/stats-N.txt`: `fishing-panel-obb-3` создаёт `stats-3.txt`. Прерванный запуск может оставить пропуск в нумерации, но номер уже не используется повторно. В отчёте сохранены базовая YOLO OBB model, лучшая и последняя завершённая Validation-эпохи, пути к checkpoint и ключевые метрики.
 
 ### Как читать метрики
 

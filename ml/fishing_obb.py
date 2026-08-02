@@ -323,13 +323,19 @@ def command_train(args: argparse.Namespace) -> None:
         close_mosaic=15,
     )
     run_directory = Path(model.trainer.save_dir).resolve()
-    statistics_path = write_training_statistics(run_directory, project, args.statistics_number)
+    statistics_path = write_training_statistics(
+        run_directory,
+        project,
+        args.model,
+        args.statistics_number,
+    )
     print(f"Статистика обучения: {statistics_path}")
 
 
 def write_training_statistics(
     run_directory: Path,
     project_directory: Path,
+    training_model: str,
     statistics_number: int | None = None,
 ) -> Path:
     """Сохраняет понятную сводку Validation-метрик завершённого Train-запуска."""
@@ -377,6 +383,7 @@ def write_training_statistics(
     lines = [
         "Статистика обучения YOLO OBB",
         f"Запуск: {run_directory.name}",
+        f"Базовая YOLO OBB model: {training_model}",
         f"Завершено эпох: {len(rows)}",
         f"Results: {results_path}",
         f"Best checkpoint: {run_directory / 'weights' / 'best.pt'}",
