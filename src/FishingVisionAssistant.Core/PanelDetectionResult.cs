@@ -11,4 +11,5 @@ public sealed record PanelDetectionResult(
     byte[] OverlayPng,
     byte[] MaskPng,
     byte[]? RectifiedPanelPng,
-    TimeSpan ProcessingTime);
+    TimeSpan ProcessingTime,
+    PanelDetectionTimings? Timings = null);

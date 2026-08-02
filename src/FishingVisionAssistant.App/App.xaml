@@ -31,6 +31,14 @@
       </Style.Triggers>
     </Style>
 
+    <Style TargetType="ToolTip">
+      <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}" />
+      <Setter Property="Background" Value="#202831" />
+      <Setter Property="BorderBrush" Value="#3A4652" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Padding" Value="9,6" />
+    </Style>
+
     <Style x:Key="AnnotationButtonStyle" TargetType="Button">
       <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}" />
       <Setter Property="Background" Value="#26313B" />

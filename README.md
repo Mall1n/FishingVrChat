@@ -101,3 +101,14 @@ dataset/
 
 На timeline зелёные штрихи обозначают positive annotation, оранжевые — negative. Кнопки в блоке `OBB-разметка` переходят к ближайшей предыдущей или следующей метке текущего видео.
 После переноса видео допускается обновить `sourcePath` в audit metadata: чтение больше не зависит от старого path hash в имени sample. При следующем сохранении кадра приложение автоматически заменит его устаревшую тройку PNG/label/metadata новым согласованным ID.
+
+### Расшифровка latency
+
+`Frame Inspector` разделяет обработку нового кадра на четыре измеряемых этапа:
+
+- `Decode` — чтение нужного кадра из видео и преобразование в BGR24. Этот этап относится к video source, а не к нейросети.
+- `Preprocess` — letterbox до `1024 × 1024`, нормализация RGB и создание входного tensor для ONNX.
+- `Inference` — только синхронный вызов `InferenceSession.Run`, то есть непосредственное выполнение нейросети выбранным backend.
+- `Postprocess` — чтение OBB output, применение confidence/geometry gate, пересчёт координат, perspective correction и кодирование diagnostic preview в PNG.
+
+`Текущая latency` включает все четыре этапа и небольшой служебный overhead между ними. Для кадра из LRU-кэша этапы показывают `кэш`, потому что decoder и detector повторно не запускаются. У legacy HSV detector значения `Preprocess`, `Inference` и `Postprocess` показываются как `—`: его pipeline пока измеряется только общим временем и не является neural inference.

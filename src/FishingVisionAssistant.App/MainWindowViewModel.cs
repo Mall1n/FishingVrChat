@@ -21,6 +21,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string _previewHint = "Нажмите «Открыть запись»";
     private string _panelReason = "Ожидание кадра";
     private string _pipelineLatency = "—";
+    private string _decodeLatency = "—";
+    private string _preprocessLatency = "—";
+    private string _inferenceLatency = "—";
+    private string _postprocessLatency = "—";
     private string _pipelineFps = "—";
     private string _performanceSummary = "Нет измерений";
     private string _cacheStatus = "—";
@@ -60,8 +64,18 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public string SourcePath
     {
         get => _sourcePath;
-        private set => SetField(ref _sourcePath, value);
+        private set
+        {
+            if (SetField(ref _sourcePath, value))
+            {
+                OnPropertyChanged(nameof(SourceName));
+            }
+        }
     }
+
+    public string SourceName => string.IsNullOrWhiteSpace(SourcePath)
+        ? "Источник не выбран"
+        : Path.GetFileName(SourcePath);
 
     public string PreviewTitle
     {
@@ -187,6 +201,30 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         private set => SetField(ref _pipelineLatency, value);
     }
 
+    public string DecodeLatency
+    {
+        get => _decodeLatency;
+        private set => SetField(ref _decodeLatency, value);
+    }
+
+    public string PreprocessLatency
+    {
+        get => _preprocessLatency;
+        private set => SetField(ref _preprocessLatency, value);
+    }
+
+    public string InferenceLatency
+    {
+        get => _inferenceLatency;
+        private set => SetField(ref _inferenceLatency, value);
+    }
+
+    public string PostprocessLatency
+    {
+        get => _postprocessLatency;
+        private set => SetField(ref _postprocessLatency, value);
+    }
+
     public string PerformanceSummary
     {
         get => _performanceSummary;
@@ -262,6 +300,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         FramePosition = "1 / 1";
         VideoPosition = "Статическое изображение";
         PipelineLatency = $"{result.ProcessingTime.TotalMilliseconds:F1} мс";
+        DecodeLatency = "—";
         PipelineFps = result.ProcessingTime.TotalMilliseconds <= 0
             ? "—"
             : $"{1000 / result.ProcessingTime.TotalMilliseconds:F1}";
@@ -314,6 +353,15 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         PipelineLatency = analysis.IsFromCache
             ? "0.0 мс"
             : $"{analysis.ProcessingTime.TotalMilliseconds:F1} мс";
+        DecodeLatency = analysis.IsFromCache
+            ? "кэш"
+            : FormatLatency(analysis.DecodeTime);
+        if (analysis.IsFromCache)
+        {
+            PreprocessLatency = "кэш";
+            InferenceLatency = "кэш";
+            PostprocessLatency = "кэш";
+        }
         PipelineFps = performance.SampleCount == 0 ? "—" : $"{performance.FramesPerSecond:F1}";
         PerformanceSummary = performance.SampleCount == 0
             ? $"cold {performance.ColdStartMilliseconds:F1} мс · ожидание прогретых кадров"
@@ -371,6 +419,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         MaskPreview = null;
         TrainingBoundsPreview = null;
         PipelineLatency = "—";
+        ResetTimingBreakdown();
         CacheStatus = "ошибка";
         IsBusy = false;
     }
@@ -384,6 +433,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         SourcePreview = DecodeImage(result.OverlayPng);
         MaskPreview = DecodeImage(result.MaskPng);
         RectifiedPreview = result.RectifiedPanelPng is null ? null : DecodeImage(result.RectifiedPanelPng);
+        PreprocessLatency = FormatLatency(result.Timings?.Preprocess);
+        InferenceLatency = FormatLatency(result.Timings?.Inference);
+        PostprocessLatency = FormatLatency(result.Timings?.Postprocess);
     }
 
     private void ResetDetectionResult()
@@ -394,6 +446,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         MaskPreview = null;
         TrainingBoundsPreview = null;
         PipelineLatency = "—";
+        ResetTimingBreakdown();
         PipelineFps = "—";
         PerformanceSummary = "Нет измерений";
         CacheStatus = "—";
@@ -412,6 +465,17 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private static string FormatTime(TimeSpan time) =>
         time.TotalHours >= 1 ? time.ToString(@"hh\:mm\:ss\.fff") : time.ToString(@"mm\:ss\.fff");
+
+    private static string FormatLatency(TimeSpan? time) =>
+        time is null ? "—" : $"{time.Value.TotalMilliseconds:F1} мс";
+
+    private void ResetTimingBreakdown()
+    {
+        DecodeLatency = "—";
+        PreprocessLatency = "—";
+        InferenceLatency = "—";
+        PostprocessLatency = "—";
+    }
 
     private static BitmapSource DecodeImage(byte[] encodedImage)
     {

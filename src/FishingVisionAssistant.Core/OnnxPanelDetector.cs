@@ -102,10 +102,21 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
 
     private PanelDetectionResult Detect(Mat source, Stopwatch stopwatch)
     {
-        using var overlay = source.Clone();
+        var phaseStopwatch = Stopwatch.StartNew();
         using var networkInput = CreateLetterbox(source, out var transform);
+        var inputTensor = CreateInputTensor(networkInput);
+        phaseStopwatch.Stop();
+        var preprocessTime = phaseStopwatch.Elapsed;
+
+        phaseStopwatch.Restart();
+        using var outputs = RunInference(inputTensor);
+        phaseStopwatch.Stop();
+        var inferenceTime = phaseStopwatch.Elapsed;
+
+        phaseStopwatch.Restart();
+        using var overlay = source.Clone();
         using var diagnostic = networkInput.Clone();
-        var predictions = RunInference(networkInput);
+        var predictions = ReadPredictions(outputs);
 
         var validPredictions = predictions
             .Where(candidate => candidate.ClassId == 0 && candidate.Width > 1 && candidate.Height > 1)
@@ -118,7 +129,6 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
         DrawDiagnosticCandidates(diagnostic, validPredictions, accepted);
         if (accepted is null)
         {
-            stopwatch.Stop();
             var best = validPredictions.OrderByDescending(candidate => candidate.Confidence).FirstOrDefault();
             Cv2.PutText(
                 overlay,
@@ -135,15 +145,20 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
                 : $"ONNX ({ProviderName}): лучший OBB не прошёл gate — confidence " +
                   $"{best.Confidence:P1}, aspect ratio {best.AspectRatio:F1}; требуется " +
                   $"≥ {_options.MinimumConfidence:P0} и ≥ {_options.MinimumAspectRatio:F1}.";
+            var notFoundOverlayPng = EncodePng(overlay);
+            var notFoundDiagnosticPng = EncodePng(diagnostic);
+            phaseStopwatch.Stop();
+            stopwatch.Stop();
             return new PanelDetectionResult(
                 false,
                 best?.Confidence ?? 0,
                 reason,
                 Array.Empty<ImagePoint>(),
-                EncodePng(overlay),
-                EncodePng(diagnostic),
+                notFoundOverlayPng,
+                notFoundDiagnosticPng,
                 null,
-                stopwatch.Elapsed);
+                stopwatch.Elapsed,
+                new PanelDetectionTimings(preprocessTime, inferenceTime, phaseStopwatch.Elapsed));
         }
 
         var inputCorners = CreateCorners(accepted);
@@ -152,6 +167,10 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
             .ToArray();
         DrawAcceptedOverlay(overlay, sourceCorners, accepted);
         using var rectified = Rectify(source, sourceCorners, accepted.Width >= accepted.Height);
+        var overlayPng = EncodePng(overlay);
+        var diagnosticPng = EncodePng(diagnostic);
+        var rectifiedPng = EncodePng(rectified);
+        phaseStopwatch.Stop();
         stopwatch.Stop();
 
         return new PanelDetectionResult(
@@ -162,13 +181,14 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
             sourceCorners
                 .Select(point => new ImagePoint(point.X, point.Y))
                 .ToArray(),
-            EncodePng(overlay),
-            EncodePng(diagnostic),
-            EncodePng(rectified),
-            stopwatch.Elapsed);
+            overlayPng,
+            diagnosticPng,
+            rectifiedPng,
+            stopwatch.Elapsed,
+            new PanelDetectionTimings(preprocessTime, inferenceTime, phaseStopwatch.Elapsed));
     }
 
-    private IReadOnlyList<ObbCandidate> RunInference(Mat networkInput)
+    private DenseTensor<float> CreateInputTensor(Mat networkInput)
     {
         using var blob = CvDnn.BlobFromImage(
             networkInput,
@@ -179,10 +199,18 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
             crop: false);
         var inputValues = new float[checked(3 * _inputWidth * _inputHeight)];
         Marshal.Copy(blob.Data, inputValues, 0, inputValues.Length);
-        var inputTensor = new DenseTensor<float>(inputValues, [1, 3, _inputHeight, _inputWidth]);
+        return new DenseTensor<float>(inputValues, [1, 3, _inputHeight, _inputWidth]);
+    }
 
+    private IDisposableReadOnlyCollection<DisposableNamedOnnxValue> RunInference(DenseTensor<float> inputTensor)
+    {
         var input = NamedOnnxValue.CreateFromTensor(_inputName, inputTensor);
-        using var outputs = _session.Run([input], [_outputName]);
+        return _session.Run([input], [_outputName]);
+    }
+
+    private IReadOnlyList<ObbCandidate> ReadPredictions(
+        IDisposableReadOnlyCollection<DisposableNamedOnnxValue> outputs)
+    {
         var output = outputs.First().AsTensor<float>();
         if (output.Dimensions.Length != 3 || output.Dimensions[0] != 1 ||
             output.Dimensions[2] != ExpectedOutputColumns)
