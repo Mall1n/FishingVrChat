@@ -191,7 +191,7 @@ Controller не вызывает Windows API ввода и не имеет за�
 
 Состояние: HSV/geometry detector, perspective correction и интерактивный HSV Lab реализованы. Проверка на разных биомах выявила неприемлемое количество false positives и пропусков, особенно ночью и рядом с удочкой. Legacy detector сохраняется как источник первоначального предложения OBB, но не считается финальным detector.
 
-### Этап 3B. OBB dataset и обучаемый detector — текущий
+### Этап 3B. OBB dataset и обучаемый detector — реализован, ожидает offline-проверку
 
 - Размечать positive OBB четырьмя точками поверх исходного кадра.
 - Сохранять hard negatives без рамки.
@@ -201,11 +201,11 @@ Controller не вызывает Windows API ввода и не имеет за�
 - Выполнить финальную проверку на Test и экспортировать модель в ONNX.
 - Подключить ONNX inference вместо выбора рамки legacy detector.
 
-Состояние инструмента разметки: готов. Приложение сохраняет чистый PNG, YOLO OBB label и audit metadata, показывает выпрямленный training bounds и отмечает уже размеченные кадры. Первый dataset собран. Добавлен воспроизводимый ML pipeline для проверки данных, transfer learning OBB-модели, отдельной оценки Test и экспорта ONNX. Первый `yolo26n-obb` baseline обучен, проверен на замороженном Test и экспортирован в ONNX. Зафиксированный geometry gate устраняет широкие вертикальные false positives. Подробные результаты находятся в `ml/BASELINE_RESULTS.md`.
+Состояние инструмента разметки: готов. Приложение сохраняет чистый PNG, YOLO OBB label и audit metadata, показывает выпрямленный training bounds и отмечает уже размеченные кадры. Первый dataset собран. Добавлен воспроизводимый ML pipeline для проверки данных, transfer learning OBB-модели, отдельной оценки Test и экспорта ONNX. Первый `yolo26n-obb` baseline обучен, проверен на замороженном Test и экспортирован в ONNX. Модель подключена к приложению через ONNX Runtime DirectML; общий `IPanelDetector` сохраняет совместимость offline-проигрывателя и OBB-разметки. Зафиксированный gate `confidence ≥ 0,50` и `aspect ratio ≥ 10,0` применяется после inference. Diagnostic preview показывает letterbox-вход и отклонённые кандидаты. Подробные результаты находятся в `ml/BASELINE_RESULTS.md`.
 
 Критерий готовности: ONNX-модель устойчиво находит повёрнутую рамку на отложенных видео, включая тёмные сцены и hard negatives с удочкой, а false positive приводит к низкому confidence или отсутствию detection.
 
-### Этап 4. Поиск игровых элементов — ожидает OBB-модель
+### Этап 4. Поиск игровых элементов — следующий после проверки ONNX на видео
 
 - Реализовать detector белой зоны.
 - Реализовать detector значка рыбы.

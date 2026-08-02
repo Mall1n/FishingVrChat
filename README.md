@@ -53,6 +53,8 @@ dotnet build FishingVrChat.sln
 - сохранение последнего видео, позиции, dataset, split, HSV и состояния режима разметки между запусками;
 - LRU-кэш последних результатов и показатели cold start, median и p95;
 - CLI для проверки OBB dataset, обучения, независимой оценки Test и экспорта ONNX;
+- ONNX Runtime detector с GPU backend DirectML, OBB overlay, geometry gate и perspective correction;
+- выбор ONNX-модели в интерфейсе и восстановление выбранного detector между запусками;
 - контракты кадров и начальный безопасный controller.
 
 Горячие клавиши Frame Inspector: `Space` — play/pause, `←`/`→` — одна секунда, `Shift+←`/`Shift+→` — один кадр.
@@ -83,8 +85,16 @@ dataset/
 
 Рекомендуемый первый набор — 150–300 разнообразных размеченных кадров. В него должны входить positive OBB, кадры без мини-игры и hard negatives, на которых legacy detector принимает удочку или фон за рамку. Validation и Test формируются из целых отдельных видео.
 
-Текущий классический detector недостаточно устойчив на разных биомах и освещении, поэтому следующий этап — обучение небольшого oriented object detector, экспорт лучшего checkpoint в ONNX и подключение inference к приложению. Поиск белой зоны и значка рыбы будет выполняться обычным OpenCV внутри найденной и выпрямленной OBB. Tracking и live capture подключаются после проверки offline-модели.
+Классический detector недостаточно устойчив на разных биомах и освещении, поэтому он оставлен как legacy-инструмент для сравнения и ручной настройки. Основной поиск рамки теперь выполняет обученный oriented detector через ONNX Runtime. Поиск белой зоны и значка рыбы будет выполняться обычным OpenCV внутри найденной и выпрямленной OBB. Tracking и live capture подключаются после проверки offline-модели.
 
 Подготовленный ML pipeline описан в `ml/README.md`. Он использует Train/Validation во время обучения, запускает Test отдельной явной командой и сохраняет checkpoints и отчёты в игнорируемую Git папку `artifacts/`.
 
 Первый `yolo26n-obb` baseline обучен и экспортирован в ONNX. Зафиксированный deployment gate использует confidence `0,50` и минимальный aspect ratio `10,0`; подробные Validation/Test результаты и hash ONNX записаны в `ml/BASELINE_RESULTS.md`.
+
+## Запуск ONNX detector
+
+1. Запусти приложение и в правом блоке `ONNX detector` нажми `Выбрать ONNX-модель`.
+2. Укажи `artifacts\models\fishing-panel-obb.onnx` или сохранённую резервную копию модели.
+3. Открой видео и проверь исходный overlay, выпрямленную шкалу и `Диагностика ONNX`.
+
+В diagnostic preview зелёная OBB прошла весь deployment gate, оранжевая имеет достаточный confidence, но не прошла geometry gate, серая находится ниже рабочего confidence. Первый кадр включает cold start DirectML; для оценки скорости следует смотреть median и p95 после нескольких кадров. При выключении `Активен` приложение возвращается к legacy OpenCV detector и снова включает HSV Lab.

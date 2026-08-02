@@ -27,6 +27,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string _framePosition = "—";
     private string _videoPosition = "—";
     private string _playbackSpeedText = "1×";
+    private string _diagnosticPreviewTitle = "HSV-маска рамки";
     private double _panelConfidence;
     private double _minimumHue = 115;
     private double _maximumHue = 145;
@@ -96,6 +97,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     {
         get => _maskPreview;
         private set => SetField(ref _maskPreview, value);
+    }
+
+    public string DiagnosticPreviewTitle
+    {
+        get => _diagnosticPreviewTitle;
+        private set => SetField(ref _diagnosticPreviewTitle, value);
     }
 
     public BitmapSource? TrainingBoundsPreview
@@ -330,6 +337,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     }
 
     public void SetPlaybackSpeed(double speed) => PlaybackSpeedText = $"{speed:0.##}×";
+
+    public void SetOnnxDetectorActive(bool isActive) =>
+        DiagnosticPreviewTitle = isActive ? "Диагностика ONNX" : "HSV-маска рамки";
 
     public PanelDetectorOptions CreatePanelDetectorOptions() => new()
     {

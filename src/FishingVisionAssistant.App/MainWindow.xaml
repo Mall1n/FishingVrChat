@@ -245,7 +245,7 @@
                       VerticalAlignment="Top"
                       Background="#B312171D"
                       CornerRadius="4">
-                <TextBlock FontSize="12" Text="HSV-маска рамки" />
+                <TextBlock FontSize="12" Text="{Binding DiagnosticPreviewTitle}" />
               </Border>
             </Grid>
           </Border>
@@ -272,7 +272,49 @@
 
       <ScrollViewer Grid.Column="4" VerticalScrollBarVisibility="Auto">
         <StackPanel>
+          <Border Padding="18"
+                  Background="{StaticResource PanelBackgroundBrush}"
+                  BorderBrush="{StaticResource PanelBorderBrush}"
+                  BorderThickness="1"
+                  CornerRadius="8">
+            <StackPanel>
+              <DockPanel>
+                <CheckBox x:Name="OnnxDetectorCheckBox"
+                          DockPanel.Dock="Right"
+                          VerticalAlignment="Center"
+                          Checked="OnnxDetectorMode_Changed"
+                          Content="Активен"
+                          Unchecked="OnnxDetectorMode_Changed" />
+                <TextBlock FontSize="17" FontWeight="SemiBold" Text="ONNX detector" />
+              </DockPanel>
+
+              <Button x:Name="ChooseOnnxModelButton"
+                      Margin="0,12,0,0"
+                      Style="{StaticResource AnnotationButtonStyle}"
+                      Click="ChooseOnnxModel_Click"
+                      Content="Выбрать ONNX-модель" />
+              <TextBlock x:Name="OnnxModelPathText"
+                         Margin="0,6,0,0"
+                         FontSize="11"
+                         Foreground="{StaticResource SecondaryTextBrush}"
+                         Text="Модель не выбрана"
+                         TextTrimming="CharacterEllipsis"
+                         ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
+              <TextBlock x:Name="OnnxDetectorStatusText"
+                         Margin="0,8,0,0"
+                         Foreground="{StaticResource SecondaryTextBrush}"
+                         Text="Используется legacy OpenCV detector."
+                         TextWrapping="Wrap" />
+              <TextBlock Margin="0,7,0,0"
+                         FontSize="11"
+                         Foreground="{StaticResource SecondaryTextBrush}"
+                         Text="Gate: confidence ≥ 50 %, aspect ratio ≥ 10. DirectML использует GPU."
+                         TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+
           <Border
+                  Margin="0,14,0,0"
                   Padding="18"
                   Background="{StaticResource PanelBackgroundBrush}"
                   BorderBrush="{StaticResource PanelBorderBrush}"
@@ -380,7 +422,8 @@
             </StackPanel>
           </Border>
 
-          <Border Margin="0,14,0,0"
+          <Border x:Name="HsvLabPanel"
+                  Margin="0,14,0,0"
                   Padding="18"
                   Background="{StaticResource PanelBackgroundBrush}"
                   BorderBrush="{StaticResource PanelBorderBrush}"

@@ -86,6 +86,10 @@ public sealed class ApplicationSettings
 
     public bool IsAnnotationModeEnabled { get; init; }
 
+    public string? OnnxModelPath { get; init; }
+
+    public bool UseOnnxDetector { get; init; }
+
     public double MinimumHue { get; init; } = 115;
 
     public double MaximumHue { get; init; } = 145;
