@@ -154,18 +154,19 @@ public sealed class LiveAnalysisSession : IAsyncDisposable
                 var analysisStarted = DateTimeOffset.UtcNow;
                 var previewSettings = Volatile.Read(ref _previewSettings);
                 var isForcedPreview = Interlocked.Exchange(ref _forcePreviewFrame, 0) != 0;
-                var previewOutputs = previewSettings.HasActivePreview &&
-                                     (isForcedPreview ||
-                                      analyzedFrameCount % previewSettings.RefreshEveryNFrames == 0)
+                var requestedPreviewOutputs = previewSettings.HasActivePreview &&
+                                              (isForcedPreview ||
+                                               analyzedFrameCount % previewSettings.RefreshEveryNFrames == 0)
                     ? previewSettings.PreviewOutputs
                     : PanelPreviewOutputs.None;
+                var detectorPreviewOutputs = requestedPreviewOutputs & ~PanelPreviewOutputs.SourceOverlay;
                 analyzedFrameCount++;
                 var detection = _detector.DetectBgra32(
                     frame.PixelBuffer,
                     frame.Width,
                     frame.Height,
                     frame.Stride,
-                    previewOutputs);
+                    detectorPreviewOutputs);
                 var completed = DateTimeOffset.UtcNow;
                 if (IsPaused)
                 {
@@ -177,7 +178,8 @@ public sealed class LiveAnalysisSession : IAsyncDisposable
                     detection,
                     analysisStarted - frame.Timestamp,
                     completed - frame.Timestamp,
-                    previewOutputs));
+                    requestedPreviewOutputs,
+                    requestedPreviewOutputs.HasFlag(PanelPreviewOutputs.SourceOverlay) ? frame : null));
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

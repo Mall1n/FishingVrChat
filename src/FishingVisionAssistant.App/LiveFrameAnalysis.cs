@@ -1,4 +1,5 @@
 using FishingVisionAssistant.Core;
+using FishingVisionAssistant.Capture;
 
 namespace FishingVisionAssistant.App;
 
@@ -10,4 +11,5 @@ public sealed record LiveFrameAnalysis(
     PanelDetectionResult PanelDetection,
     TimeSpan QueueTime,
     TimeSpan EndToEndTime,
-    PanelPreviewOutputs PreviewOutputs);
+    PanelPreviewOutputs PreviewOutputs,
+    CapturedFrame? SourcePreviewFrame);

@@ -38,11 +38,13 @@
                 IsEnabled="True"
                 ToolTip="Выбрать окно VRChat или монитор через системный picker" />
         <Button x:Name="PauseLiveCaptureButton"
+                Width="48"
                 Margin="8,0,0,0"
                 Click="PauseLiveCapture_Click"
-                Content="Приостановить"
+                Content="▶"
                 IsEnabled="False"
-                ToolTip="Заморозить live-анализ без закрытия выбранного окна" />
+                Style="{StaticResource ReadableDisabledButtonStyle}"
+                ToolTip="Live capture не запущен" />
       </StackPanel>
     </DockPanel>
 
@@ -211,6 +213,10 @@
                    Margin="12"
                    Source="{Binding SourcePreview}"
                    Stretch="Uniform" />
+            <Canvas x:Name="LiveDetectionCanvas"
+                    Margin="12"
+                    Background="Transparent"
+                    IsHitTestVisible="False" />
             <Canvas x:Name="AnnotationCanvas"
                     Margin="12"
                     Background="Transparent"
@@ -564,14 +570,25 @@
 
         <StackPanel Grid.Row="1" Orientation="Horizontal">
           <Button Click="PreviousSecond_Click"
-                  IsEnabled="{Binding CanUseTimelineButtons}"
+                  IsEnabled="{Binding CanNavigate}"
+                  Style="{StaticResource ReadableDisabledButtonStyle}"
                   Content="◀ 1 с"
                   ToolTip="Назад на одну секунду" />
-          <Button Click="PreviousFrame_Click" IsEnabled="{Binding CanUseTimelineButtons}" Content="◀" />
-          <Button Click="PlayPause_Click" IsEnabled="{Binding CanUseTimelineButtons}" Content="{Binding PlayPauseText}" />
-          <Button Click="NextFrame_Click" IsEnabled="{Binding CanUseTimelineButtons}" Content="▶" />
+          <Button Click="PreviousFrame_Click"
+                  IsEnabled="{Binding CanNavigate}"
+                  Style="{StaticResource ReadableDisabledButtonStyle}"
+                  Content="◀" />
+          <Button Click="PlayPause_Click"
+                  IsEnabled="{Binding CanNavigate}"
+                  Style="{StaticResource ReadableDisabledButtonStyle}"
+                  Content="{Binding PlayPauseText}" />
+          <Button Click="NextFrame_Click"
+                  IsEnabled="{Binding CanNavigate}"
+                  Style="{StaticResource ReadableDisabledButtonStyle}"
+                  Content="▶" />
           <Button Click="NextSecond_Click"
-                  IsEnabled="{Binding CanUseTimelineButtons}"
+                  IsEnabled="{Binding CanNavigate}"
+                  Style="{StaticResource ReadableDisabledButtonStyle}"
                   Content="1 с ▶"
                   ToolTip="Вперёд на одну секунду" />
         </StackPanel>
@@ -608,6 +625,8 @@
                 Margin="0"
                 Click="PlaybackSpeed_Click"
                 Content="{Binding PlaybackSpeedText}"
+                IsEnabled="{Binding CanNavigate}"
+                Style="{StaticResource ReadableDisabledButtonStyle}"
                 ToolTip="Нажмите, чтобы изменить скорость воспроизведения" />
       </Grid>
     </Border>

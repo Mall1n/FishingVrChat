@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using FishingVisionAssistant.Capture;
@@ -37,9 +38,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private double _timelineMaximum = 1;
     private double _timelineValue;
     private bool _isVideoLoaded;
-    private bool _isLiveCaptureActive;
     private bool _isBusy;
     private bool _isPlaying;
+    private WriteableBitmap? _liveSourceBitmap;
     private BitmapSource? _sourcePreview;
     private BitmapSource? _rectifiedPreview;
     private BitmapSource? _maskPreview;
@@ -237,7 +238,6 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             if (SetField(ref _isVideoLoaded, value))
             {
                 OnPropertyChanged(nameof(CanNavigate));
-                OnPropertyChanged(nameof(CanUseTimelineButtons));
             }
         }
     }
@@ -255,8 +255,6 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     }
 
     public bool CanNavigate => IsVideoLoaded;
-
-    public bool CanUseTimelineButtons => IsVideoLoaded || _isLiveCaptureActive;
 
     public string PlayPauseText => _isPlaying ? "⏸" : "▶";
 
@@ -326,8 +324,6 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     {
         ResetVideoState();
         ResetDetectionResult();
-        _isLiveCaptureActive = true;
-        OnPropertyChanged(nameof(CanUseTimelineButtons));
         SourcePath = descriptor.DisplayName;
         SourceStatus = "Live capture запущен · обрабатывается только самый свежий кадр";
         PreviewTitle = "Ожидание первого live-кадра…";
@@ -355,9 +351,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         {
             if (analysis.PreviewOutputs.HasFlag(PanelPreviewOutputs.SourceOverlay) &&
                 previewSettings.UpdateSourcePreview &&
-                result.OverlayPng.Length > 0)
+                analysis.SourcePreviewFrame is not null)
             {
-                SourcePreview = DecodeImage(result.OverlayPng);
+                ApplyLiveSourceFrame(analysis.SourcePreviewFrame);
             }
 
             if (analysis.PreviewOutputs.HasFlag(PanelPreviewOutputs.OnnxDiagnostic) &&
@@ -396,8 +392,6 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     public void EndLiveCapture(string status)
     {
-        _isLiveCaptureActive = false;
-        OnPropertyChanged(nameof(CanUseTimelineButtons));
         SourceStatus = status;
         CacheStatus = "live остановлен";
     }
@@ -499,6 +493,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private void ApplyDetectionResult(PanelDetectionResult result)
     {
+        _liveSourceBitmap = null;
         PreviewTitle = string.Empty;
         PreviewHint = string.Empty;
         PanelReason = result.Reason;
@@ -513,6 +508,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private void ResetDetectionResult()
     {
+        _liveSourceBitmap = null;
         PanelConfidence = 0;
         SourcePreview = null;
         RectifiedPreview = null;
@@ -566,6 +562,34 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         }
 
         return $"Inference · {string.Join("/", previewNames)}";
+    }
+
+    private void ApplyLiveSourceFrame(CapturedFrame frame)
+    {
+        if (frame.PixelFormat != FramePixelFormat.Bgra32)
+        {
+            throw new InvalidDataException($"Live preview не поддерживает формат {frame.PixelFormat}.");
+        }
+
+        if (_liveSourceBitmap is null ||
+            _liveSourceBitmap.PixelWidth != frame.Width ||
+            _liveSourceBitmap.PixelHeight != frame.Height)
+        {
+            _liveSourceBitmap = new WriteableBitmap(
+                frame.Width,
+                frame.Height,
+                96,
+                96,
+                PixelFormats.Bgra32,
+                null);
+            SourcePreview = _liveSourceBitmap;
+        }
+
+        _liveSourceBitmap.WritePixels(
+            new Int32Rect(0, 0, frame.Width, frame.Height),
+            frame.PixelBuffer,
+            frame.Stride,
+            0);
     }
 
     private void ResetTimingBreakdown()

@@ -32,7 +32,13 @@ public partial class MainWindow : Window
     private readonly ApplicationSettingsStore _settingsStore = new();
     private readonly ObbDatasetWriter _datasetWriter = new();
     private readonly MainWindowViewModel _viewModel = new();
+    private readonly object _liveUiSync = new();
     private ObbAnnotationOverlay? _annotationOverlay;
+    private LiveDetectionOverlay? _liveDetectionOverlay;
+    private LiveAnalysisSession? _pendingLiveUiSession;
+    private LiveFrameAnalysis? _pendingLiveUiFrame;
+    private PerformanceSnapshot? _pendingLivePerformance;
+    private bool _isLiveUiUpdateScheduled;
     private PerformanceStatistics _performanceStatistics = new();
     private VideoAnalysisSession? _videoSession;
     private LiveAnalysisSession? _liveSession;
@@ -64,6 +70,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         DataContext = _viewModel;
         _annotationOverlay = new ObbAnnotationOverlay(SourcePreviewImage, AnnotationCanvas);
+        _liveDetectionOverlay = new LiveDetectionOverlay(SourcePreviewImage, LiveDetectionCanvas);
         _annotationOverlay.Changed += AnnotationOverlay_Changed;
         UpdateAnnotationControls();
         _annotationPreviewTimer.Tick += AnnotationPreviewTimer_Tick;
@@ -202,11 +209,12 @@ public partial class MainWindow : Window
             _performanceStatistics = new PerformanceStatistics();
             _viewModel.BeginLiveCapture(session.Descriptor);
             LiveCaptureButton.Content = "Остановить Live capture";
-            PauseLiveCaptureButton.Content = "Приостановить";
+            PauseLiveCaptureButton.Content = "⏸";
             PauseLiveCaptureButton.IsEnabled = true;
+            PauseLiveCaptureButton.ToolTip = "Приостановить live capture";
             UpdateAnnotationControls();
             session.Start(
-                analysis => Dispatcher.BeginInvoke(() => ApplyLiveFrame(session, analysis)),
+                analysis => QueueLiveFrameForUi(session, analysis),
                 exception => Dispatcher.BeginInvoke(() => HandleLiveCaptureError(session, exception)),
                 () => Dispatcher.BeginInvoke(() => HandleLiveCaptureCompleted(session)));
         }
@@ -228,13 +236,15 @@ public partial class MainWindow : Window
         if (session.IsPaused)
         {
             session.Resume();
-            PauseLiveCaptureButton.Content = "Приостановить";
+            PauseLiveCaptureButton.Content = "⏸";
+            PauseLiveCaptureButton.ToolTip = "Приостановить live capture";
             _viewModel.SetLiveCapturePaused(false);
             return;
         }
 
         session.Pause();
-        PauseLiveCaptureButton.Content = "Продолжить";
+        PauseLiveCaptureButton.Content = "▶";
+        PauseLiveCaptureButton.ToolTip = "Продолжить live capture";
         _viewModel.SetLiveCapturePaused(true);
     }
 
@@ -530,18 +540,96 @@ public partial class MainWindow : Window
         UpdateAnnotationControls();
     }
 
-    private void ApplyLiveFrame(LiveAnalysisSession session, LiveFrameAnalysis analysis)
+    private void ApplyLiveFrame(
+        LiveAnalysisSession session,
+        LiveFrameAnalysis analysis,
+        PerformanceSnapshot performance)
     {
         if (!ReferenceEquals(session, _liveSession) || session.IsPaused)
         {
             return;
         }
 
-        _performanceStatistics.Add(analysis.EndToEndTime);
+        var previewSettings = GetEffectiveLivePreviewSettings();
         _viewModel.ApplyLiveFrame(
             analysis,
-            _performanceStatistics.GetSnapshot(),
-            GetEffectiveLivePreviewSettings());
+            performance,
+            previewSettings);
+        if (analysis.SourcePreviewFrame is not null && previewSettings.UpdateSourcePreview)
+        {
+            if (analysis.PanelDetection.IsDetected)
+            {
+                _liveDetectionOverlay?.Show(analysis.PanelDetection.Corners);
+            }
+            else
+            {
+                _liveDetectionOverlay?.Clear();
+            }
+        }
+    }
+
+    private void QueueLiveFrameForUi(LiveAnalysisSession session, LiveFrameAnalysis analysis)
+    {
+        var shouldSchedule = false;
+        lock (_liveUiSync)
+        {
+            if (!ReferenceEquals(session, _liveSession))
+            {
+                return;
+            }
+
+            _performanceStatistics.Add(analysis.EndToEndTime);
+            _pendingLiveUiSession = session;
+            _pendingLiveUiFrame = analysis;
+            _pendingLivePerformance = _performanceStatistics.GetSnapshot();
+            if (!_isLiveUiUpdateScheduled)
+            {
+                _isLiveUiUpdateScheduled = true;
+                shouldSchedule = true;
+            }
+        }
+
+        if (shouldSchedule)
+        {
+            Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(ApplyPendingLiveFrame));
+        }
+    }
+
+    private void ApplyPendingLiveFrame()
+    {
+        LiveAnalysisSession? session;
+        LiveFrameAnalysis? analysis;
+        PerformanceSnapshot? performance;
+        lock (_liveUiSync)
+        {
+            session = _pendingLiveUiSession;
+            analysis = _pendingLiveUiFrame;
+            performance = _pendingLivePerformance;
+            _pendingLiveUiSession = null;
+            _pendingLiveUiFrame = null;
+            _pendingLivePerformance = null;
+            _isLiveUiUpdateScheduled = false;
+        }
+
+        if (session is not null && analysis is not null && performance is not null)
+        {
+            ApplyLiveFrame(session, analysis, performance);
+        }
+    }
+
+    private void ClearPendingLiveFrames(LiveAnalysisSession session)
+    {
+        lock (_liveUiSync)
+        {
+            if (!ReferenceEquals(_pendingLiveUiSession, session))
+            {
+                return;
+            }
+
+            _pendingLiveUiSession = null;
+            _pendingLiveUiFrame = null;
+            _pendingLivePerformance = null;
+        }
     }
 
     private async void HandleLiveCaptureError(LiveAnalysisSession session, Exception exception)
@@ -574,9 +662,11 @@ public partial class MainWindow : Window
         }
 
         _liveSession = null;
+        ClearPendingLiveFrames(session);
         LiveCaptureButton.Content = "Запустить Live capture";
-        PauseLiveCaptureButton.Content = "Приостановить";
+        PauseLiveCaptureButton.Content = "▶";
         PauseLiveCaptureButton.IsEnabled = false;
+        PauseLiveCaptureButton.ToolTip = "Live capture не запущен";
         await session.DisposeAsync();
         _viewModel.EndLiveCapture(status);
         UpdateAnnotationControls();
@@ -1553,6 +1643,7 @@ public partial class MainWindow : Window
     private void ResetCurrentDetection()
     {
         _currentDetection = null;
+        _liveDetectionOverlay?.Clear();
         _existingAnnotations = [];
         _annotationFramePng = null;
         _viewModel.SetTrainingBoundsPreview(null);
