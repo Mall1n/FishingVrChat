@@ -536,6 +536,117 @@
             </StackPanel>
           </Border>
 
+          <Border Margin="0,14,0,0"
+                  Padding="18"
+                  Background="{StaticResource PanelBackgroundBrush}"
+                  BorderBrush="{StaticResource PanelBorderBrush}"
+                  BorderThickness="1"
+                  CornerRadius="8">
+            <StackPanel>
+              <TextBlock FontSize="17" FontWeight="SemiBold" Text="Обучение OBB-модели" />
+              <TextBlock Margin="0,6,0,0"
+                         FontSize="11"
+                         Foreground="{StaticResource SecondaryTextBrush}"
+                         Text="Используется выбранная выше папка dataset и .venv проекта."
+                         TextWrapping="Wrap" />
+
+              <Grid Margin="0,12,0,0">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="12" />
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="12" />
+                  <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <TextBlock Text="Epochs"
+                           ToolTip="Максимальное число полных проходов модели по Train." />
+                <TextBlock Grid.Column="2"
+                           Text="Patience"
+                           ToolTip="Остановка обучения после указанного числа эпох без улучшения Validation." />
+                <TextBlock Grid.Column="4"
+                           Text="Batch"
+                           ToolTip="Число кадров в одном шаге. Значение -1 автоматически подбирает batch по памяти GPU." />
+                <TextBox x:Name="TrainingEpochsTextBox"
+                         Grid.Row="1"
+                         Margin="0,5,0,0"
+                         Style="{StaticResource DarkTextBoxStyle}"
+                         ToolTip="Максимальное число полных проходов модели по Train. Для начала оставьте 150."
+                         Text="150" />
+                <TextBox x:Name="TrainingPatienceTextBox"
+                         Grid.Row="1"
+                         Grid.Column="2"
+                         Margin="0,5,0,0"
+                         Style="{StaticResource DarkTextBoxStyle}"
+                         ToolTip="Если Validation не улучшается столько эпох, обучение завершается досрочно."
+                         Text="35" />
+                <TextBox x:Name="TrainingBatchTextBox"
+                         Grid.Row="1"
+                         Grid.Column="4"
+                         Margin="0,5,0,0"
+                         Style="{StaticResource DarkTextBoxStyle}"
+                         ToolTip="-1 автоматически подбирает batch по доступной памяти GPU."
+                         Text="-1" />
+              </Grid>
+
+              <DockPanel Margin="0,10,0,0">
+                <TextBlock VerticalAlignment="Center" Text="Устройство" />
+                <ComboBox x:Name="TrainingDeviceComboBox"
+                          Width="160"
+                          HorizontalAlignment="Right"
+                          SelectedIndex="0"
+                          Style="{StaticResource DarkComboBoxStyle}">
+                  <ComboBoxItem Content="Auto (GPU)" Tag="auto" />
+                  <ComboBoxItem Content="GPU 0" Tag="0" />
+                  <ComboBoxItem Content="CPU" Tag="cpu" />
+                </ComboBox>
+              </DockPanel>
+
+              <WrapPanel Margin="0,12,0,0">
+                <Button x:Name="CheckDatasetButton"
+                        Margin="0,0,8,8"
+                        Style="{StaticResource AnnotationButtonStyle}"
+                        Click="CheckDataset_Click"
+                        Content="Проверить dataset" />
+                <Button x:Name="StartTrainingButton"
+                        Margin="0,0,8,8"
+                        Style="{StaticResource AnnotationButtonStyle}"
+                        Click="StartTraining_Click"
+                        Content="Начать обучение" />
+                <Button x:Name="StopTrainingButton"
+                        Margin="0,0,8,8"
+                        Style="{StaticResource AnnotationButtonStyle}"
+                        Click="StopTraining_Click"
+                        Content="Остановить"
+                        IsEnabled="False" />
+              </WrapPanel>
+
+              <TextBlock x:Name="TrainingStatusText"
+                         Margin="0,2,0,0"
+                         FontSize="11"
+                         Foreground="{StaticResource SecondaryTextBrush}"
+                         Text="Готово к проверке dataset или обучению. Размер входа: 1024 × 1024."
+                         TextWrapping="Wrap" />
+              <TextBox x:Name="TrainingLogTextBox"
+                       Height="150"
+                       Margin="0,10,0,0"
+                       Padding="8"
+                       Background="#161D24"
+                       BorderBrush="{StaticResource PanelBorderBrush}"
+                       BorderThickness="1"
+                       FontFamily="Consolas"
+                       FontSize="11"
+                       Foreground="{StaticResource PrimaryTextBrush}"
+                       IsReadOnly="True"
+                       TextWrapping="NoWrap"
+                       VerticalScrollBarVisibility="Auto"
+                       HorizontalScrollBarVisibility="Auto" />
+            </StackPanel>
+          </Border>
+
         </StackPanel>
       </ScrollViewer>
     </Grid>

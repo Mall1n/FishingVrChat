@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
@@ -31,6 +32,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _playbackTimer = new(DispatcherPriority.Render);
     private readonly ApplicationSettingsStore _settingsStore = new();
     private readonly ObbDatasetWriter _datasetWriter = new();
+    private readonly MlTrainingRunner _mlTrainingRunner = new();
     private readonly MainWindowViewModel _viewModel = new();
     private readonly object _liveUiSync = new();
     private ObbAnnotationOverlay? _annotationOverlay;
@@ -64,6 +66,7 @@ public partial class MainWindow : Window
     private double _onnxMinimumConfidence = DefaultOnnxMinimumConfidence;
     private double _onnxMinimumAspectRatio = DefaultOnnxMinimumAspectRatio;
     private int _annotationPreviewVersion;
+    private CancellationTokenSource? _mlTrainingCancellation;
 
     public MainWindow()
     {
@@ -696,6 +699,9 @@ public partial class MainWindow : Window
 
     private void MainWindow_Closed(object? sender, EventArgs e)
     {
+        _mlTrainingCancellation?.Cancel();
+        _mlTrainingCancellation?.Dispose();
+        _mlTrainingCancellation = null;
         _settingsStore.Save(CaptureSettings());
         _annotationPreviewTimer.Stop();
         var liveSession = _liveSession;
@@ -1177,6 +1183,176 @@ public partial class MainWindow : Window
         await RefreshExistingAnnotationAsync();
         await RefreshTimelineAnnotationsAsync();
         UpdateAnnotationControls();
+    }
+
+    private async void CheckDataset_Click(object sender, RoutedEventArgs e) =>
+        await RunMlCommandAsync(isTraining: false);
+
+    private async void StartTraining_Click(object sender, RoutedEventArgs e) =>
+        await RunMlCommandAsync(isTraining: true);
+
+    private void StopTraining_Click(object sender, RoutedEventArgs e)
+    {
+        if (_mlTrainingCancellation is null)
+        {
+            return;
+        }
+
+        TrainingStatusText.Text = "Останавливаю ML-процесс…";
+        _mlTrainingCancellation.Cancel();
+    }
+
+    private async Task RunMlCommandAsync(bool isTraining)
+    {
+        if (_mlTrainingCancellation is not null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_datasetRoot) || !Directory.Exists(_datasetRoot))
+        {
+            TrainingStatusText.Text = "Сначала выберите существующую папку dataset в блоке OBB-разметки.";
+            return;
+        }
+
+        var mlPaths = FindMlPaths();
+        if (mlPaths is null)
+        {
+            TrainingStatusText.Text = "Не найдены .venv или ml\\fishing_obb.py рядом с проектом.";
+            return;
+        }
+
+        var arguments = new List<string> { isTraining ? "train" : "check", "--dataset", _datasetRoot };
+        if (isTraining)
+        {
+            if (!TryGetTrainingOptions(out var epochs, out var patience, out var batch))
+            {
+                return;
+            }
+
+            arguments.AddRange(
+            [
+                "--epochs", epochs.ToString(),
+                "--patience", patience.ToString(),
+                "--imgsz", "1024",
+                "--batch", batch.ToString(),
+                "--device", GetSelectedTrainingDevice()
+            ]);
+        }
+
+        _mlTrainingCancellation = new CancellationTokenSource();
+        UpdateTrainingControls(isRunning: true);
+        TrainingLogTextBox.Clear();
+        AppendTrainingLog($"> {Path.GetFileName(mlPaths.PythonPath)} ml\\fishing_obb.py {string.Join(' ', arguments)}");
+        TrainingStatusText.Text = isTraining ? "Идёт обучение модели…" : "Проверяю dataset…";
+        try
+        {
+            var exitCode = await _mlTrainingRunner.RunAsync(
+                mlPaths.PythonPath,
+                mlPaths.ScriptPath,
+                mlPaths.RepositoryRoot,
+                arguments,
+                AppendTrainingLog,
+                _mlTrainingCancellation.Token);
+            var action = isTraining ? "Обучение" : "Проверка dataset";
+            TrainingStatusText.Text = exitCode == 0
+                ? $"{action} завершено."
+                : $"{action} завершено с кодом {exitCode}. Проверьте журнал.";
+        }
+        catch (Exception exception)
+        {
+            AppendTrainingLog(exception.ToString());
+            TrainingStatusText.Text = $"Не удалось запустить ML-процесс: {exception.Message}";
+        }
+        finally
+        {
+            _mlTrainingCancellation?.Dispose();
+            _mlTrainingCancellation = null;
+            UpdateTrainingControls(isRunning: false);
+        }
+    }
+
+    private bool TryGetTrainingOptions(out int epochs, out int patience, out int batch)
+    {
+        epochs = 0;
+        patience = 0;
+        batch = 0;
+        if (!int.TryParse(TrainingEpochsTextBox.Text, out epochs) || epochs <= 0)
+        {
+            TrainingStatusText.Text = "Число эпох должно быть положительным целым числом.";
+            return false;
+        }
+
+        if (!int.TryParse(TrainingPatienceTextBox.Text, out patience) || patience <= 0)
+        {
+            TrainingStatusText.Text = "Patience должно быть положительным целым числом.";
+            return false;
+        }
+
+        if (!int.TryParse(TrainingBatchTextBox.Text, out batch) || batch == 0 || batch < -1)
+        {
+            TrainingStatusText.Text = "Batch должен быть -1 для авто-режима или положительным целым числом.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private string GetSelectedTrainingDevice() =>
+        (TrainingDeviceComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "auto";
+
+    private void UpdateTrainingControls(bool isRunning)
+    {
+        CheckDatasetButton.IsEnabled = !isRunning;
+        StartTrainingButton.IsEnabled = !isRunning;
+        StopTrainingButton.IsEnabled = isRunning;
+        TrainingEpochsTextBox.IsEnabled = !isRunning;
+        TrainingPatienceTextBox.IsEnabled = !isRunning;
+        TrainingBatchTextBox.IsEnabled = !isRunning;
+        TrainingDeviceComboBox.IsEnabled = !isRunning;
+    }
+
+    private void AppendTrainingLog(string line)
+    {
+        if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(() => AppendTrainingLog(line));
+            return;
+        }
+
+        const int maximumLogLength = 200_000;
+        if (TrainingLogTextBox.Text.Length > maximumLogLength)
+        {
+            TrainingLogTextBox.Text = TrainingLogTextBox.Text[^maximumLogLength..];
+        }
+
+        TrainingLogTextBox.AppendText(line + Environment.NewLine);
+        TrainingLogTextBox.ScrollToEnd();
+    }
+
+    private static MlPaths? FindMlPaths()
+    {
+        foreach (var root in new[] { Environment.CurrentDirectory, AppContext.BaseDirectory }
+                     .Select(Path.GetFullPath)
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            for (var directory = new DirectoryInfo(root); directory is not null; directory = directory.Parent)
+            {
+                var pythonPath = Path.Combine(directory.FullName, ".venv", "Scripts", "python.exe");
+                var scriptPath = Path.Combine(directory.FullName, "ml", "fishing_obb.py");
+                if (File.Exists(pythonPath) && File.Exists(scriptPath))
+                {
+                    return new MlPaths(directory.FullName, pythonPath, scriptPath);
+                }
+            }
+        }
+
+        return null;
     }
 
     private void DatasetSplit_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1807,6 +1983,8 @@ public partial class MainWindow : Window
         NextAnnotationButton.IsEnabled = active &&
                                          _timelineAnnotations.Any(marker => marker.FrameIndex > _currentFrameIndex);
     }
+
+    private sealed record MlPaths(string RepositoryRoot, string PythonPath, string ScriptPath);
 
     private static bool IsImage(string path)
     {

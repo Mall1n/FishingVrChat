@@ -150,6 +150,17 @@
       </Setter>
     </Style>
 
+    <Style x:Key="DarkTextBoxStyle" TargetType="TextBox">
+      <Setter Property="Height" Value="34" />
+      <Setter Property="Padding" Value="10,7" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}" />
+      <Setter Property="Background" Value="#26313B" />
+      <Setter Property="BorderBrush" Value="#3A4652" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CaretBrush" Value="{StaticResource PrimaryTextBrush}" />
+    </Style>
+
     <Style x:Key="AnnotationButtonStyle" TargetType="Button">
       <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}" />
       <Setter Property="Background" Value="#26313B" />
