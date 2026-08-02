@@ -21,9 +21,9 @@ public sealed class OnnxPanelDetectorOptions
     public double MinimumAspectRatio { get; init; } = 10;
 
     /// <summary>
-    /// Backend ONNX Runtime; DirectML использует доступный Windows GPU.
+    /// Backend ONNX Runtime; CPU является совместимым режимом по умолчанию.
     /// </summary>
-    public OnnxExecutionProvider ExecutionProvider { get; init; } = OnnxExecutionProvider.DirectMl;
+    public OnnxExecutionProvider ExecutionProvider { get; init; } = OnnxExecutionProvider.Cpu;
 
     /// <summary>
     /// Индекс DirectML-устройства, обычно 0 для основного GPU.

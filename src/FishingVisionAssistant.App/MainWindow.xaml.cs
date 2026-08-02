@@ -8,6 +8,7 @@ using System.Windows.Threading;
 using FishingVisionAssistant.Capture;
 using FishingVisionAssistant.Core;
 using Microsoft.Win32;
+using Rectangle = System.Windows.Shapes.Rectangle;
 
 namespace FishingVisionAssistant.App;
 
@@ -42,6 +43,7 @@ public partial class MainWindow : Window
     private long _lastVideoFrameIndex;
     private byte[]? _annotationFramePng;
     private IReadOnlyList<ObbDatasetExistingSample> _existingAnnotations = [];
+    private IReadOnlyList<ObbDatasetTimelineMarker> _timelineAnnotations = [];
     private double _playbackSpeed = 1;
     private int _playbackSpeedIndex = 2;
     private bool _isFrameTransitionActive;
@@ -182,6 +184,7 @@ public partial class MainWindow : Window
             _lastVideoFrameIndex = _currentFrameIndex;
             _viewModel.InitializeVideo(session.Metadata);
             UpdatePlaybackInterval();
+            await RefreshTimelineAnnotationsAsync();
             await ShowVideoFrameAsync(_currentFrameIndex);
         }
         catch (Exception exception)
@@ -311,10 +314,6 @@ public partial class MainWindow : Window
                     await DeleteCurrentAnnotationAsync();
                     e.Handled = true;
                     return;
-                case Key.S:
-                    await SkipAnnotationAsync();
-                    e.Handled = true;
-                    return;
             }
         }
 
@@ -354,6 +353,12 @@ public partial class MainWindow : Window
     private async void NextSecond_Click(object sender, RoutedEventArgs e) =>
         await NavigateRelativeAsync(GetSecondFrameOffset());
 
+    private async void PreviousAnnotation_Click(object sender, RoutedEventArgs e) =>
+        await NavigateToAnnotationAsync(previous: true);
+
+    private async void NextAnnotation_Click(object sender, RoutedEventArgs e) =>
+        await NavigateToAnnotationAsync(previous: false);
+
     private long GetSecondFrameOffset()
     {
         var framesPerSecond = _videoSession?.Metadata.FramesPerSecond ?? 60;
@@ -376,6 +381,9 @@ public partial class MainWindow : Window
         StopPlayback();
         await ShowVideoFrameAsync((long)Math.Round(TimelineSlider.Value));
     }
+
+    private void TimelineMarkersCanvas_SizeChanged(object sender, SizeChangedEventArgs e) =>
+        RenderTimelineMarkers();
 
     private void PlaybackSpeed_Click(object sender, RoutedEventArgs e)
     {
@@ -455,6 +463,9 @@ public partial class MainWindow : Window
         StopPlayback();
         _videoSession?.Dispose();
         _videoSession = null;
+        _timelineAnnotations = [];
+        RenderTimelineMarkers();
+        UpdateAnnotationControls();
     }
 
     private void ShowAnalysisError(Exception exception)
@@ -622,7 +633,7 @@ public partial class MainWindow : Window
 
         StopPlayback();
         SetOnnxControlsEnabled(false);
-        OnnxDetectorStatusText.Text = "Загрузка модели и подготовка DirectML…";
+        OnnxDetectorStatusText.Text = "Загрузка модели и подготовка CPU backend…";
         try
         {
             var modelPath = _onnxModelPath;
@@ -631,7 +642,7 @@ public partial class MainWindow : Window
                 ModelPath = modelPath,
                 MinimumConfidence = 0.5,
                 MinimumAspectRatio = 10,
-                ExecutionProvider = OnnxExecutionProvider.DirectMl
+                ExecutionProvider = OnnxExecutionProvider.Cpu
             }));
 
             var previous = _onnxPanelDetector;
@@ -801,6 +812,7 @@ public partial class MainWindow : Window
         }
 
         await RefreshExistingAnnotationAsync();
+        await RefreshTimelineAnnotationsAsync();
         UpdateAnnotationControls();
     }
 
@@ -826,9 +838,6 @@ public partial class MainWindow : Window
 
     private async void DeleteAnnotation_Click(object sender, RoutedEventArgs e) =>
         await DeleteCurrentAnnotationAsync();
-
-    private async void SkipAnnotation_Click(object sender, RoutedEventArgs e) =>
-        await SkipAnnotationAsync();
 
     private void BeginCorrection()
     {
@@ -922,6 +931,7 @@ public partial class MainWindow : Window
                 legacyDetection);
             var result = await _datasetWriter.SaveAsync(_datasetRoot!, sample);
             await RefreshExistingAnnotationAsync();
+            await RefreshTimelineAnnotationsAsync();
             AnnotationStatusText.Text = $"Сохранено: {result.SampleId}. Текущий кадр оставлен открытым.";
         }
         catch (Exception exception)
@@ -939,17 +949,6 @@ public partial class MainWindow : Window
             _isAnnotationSaveActive = false;
             UpdateAnnotationControls();
         }
-    }
-
-    private async Task SkipAnnotationAsync()
-    {
-        if (_videoSession is null || _isAnnotationSaveActive)
-        {
-            return;
-        }
-
-        AnnotationStatusText.Text = "Кадр пропущен.";
-        await NavigateRelativeAsync(1);
     }
 
     private async Task DeleteCurrentAnnotationAsync()
@@ -989,6 +988,7 @@ public partial class MainWindow : Window
             long? frameIndex = _videoSession is null ? null : _currentFrameIndex;
             var result = await _datasetWriter.DeleteExistingAsync(_datasetRoot, sourcePath, frameIndex);
             await RefreshExistingAnnotationAsync();
+            await RefreshTimelineAnnotationsAsync();
             AnnotationStatusText.Text =
                 $"Удалено файлов: {result.DeletedFiles}. Текущий кадр оставлен открытым.";
         }
@@ -1082,6 +1082,103 @@ public partial class MainWindow : Window
             SetExistingAnnotationStatus(
                 $"Не удалось прочитать разметку: {exception.Message}",
                 Brushes.OrangeRed);
+        }
+    }
+
+    private async Task RefreshTimelineAnnotationsAsync()
+    {
+        var session = _videoSession;
+        var datasetRoot = _datasetRoot;
+        if (session is null || string.IsNullOrWhiteSpace(datasetRoot))
+        {
+            _timelineAnnotations = [];
+            RenderTimelineMarkers();
+            UpdateAnnotationControls();
+            return;
+        }
+
+        var sourcePath = session.Metadata.SourcePath;
+        try
+        {
+            var markers = await _datasetWriter.FindTimelineMarkersAsync(datasetRoot, sourcePath);
+            if (!ReferenceEquals(session, _videoSession) ||
+                !string.Equals(sourcePath, _videoSession?.Metadata.SourcePath, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            _timelineAnnotations = markers;
+            RenderTimelineMarkers();
+            UpdateAnnotationControls();
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            _timelineAnnotations = [];
+            RenderTimelineMarkers();
+            TimelineAnnotationCountText.Text = $"Не удалось прочитать метки: {exception.Message}";
+            UpdateAnnotationControls();
+        }
+    }
+
+    private async Task NavigateToAnnotationAsync(bool previous)
+    {
+        if (_videoSession is null || _isFrameTransitionActive)
+        {
+            return;
+        }
+
+        var targetFrame = previous
+            ? _timelineAnnotations
+                .Where(marker => marker.FrameIndex < _currentFrameIndex)
+                .Select(marker => (long?)marker.FrameIndex)
+                .Max()
+            : _timelineAnnotations
+                .Where(marker => marker.FrameIndex > _currentFrameIndex)
+                .Select(marker => (long?)marker.FrameIndex)
+                .Min();
+        if (targetFrame is null)
+        {
+            return;
+        }
+
+        StopPlayback();
+        await ShowVideoFrameAsync(targetFrame.Value);
+    }
+
+    private void RenderTimelineMarkers()
+    {
+        if (!IsInitialized || TimelineMarkersCanvas is null || TimelineAnnotationCountText is null)
+        {
+            return;
+        }
+
+        TimelineMarkersCanvas.Children.Clear();
+        TimelineAnnotationCountText.Text = $"Меток текущего видео: {_timelineAnnotations.Count:N0}";
+        var session = _videoSession;
+        var availableWidth = TimelineMarkersCanvas.ActualWidth;
+        if (session is null || availableWidth <= 2 || session.Metadata.FrameCount <= 1)
+        {
+            return;
+        }
+
+        // Метка центрируется относительно позиции кадра, оставляя по пикселю на краях timeline.
+        var maximumFrame = session.Metadata.FrameCount - 1d;
+        foreach (var marker in _timelineAnnotations)
+        {
+            var x = 1 + Math.Clamp(marker.FrameIndex / maximumFrame, 0, 1) * (availableWidth - 2);
+            var line = new Rectangle
+            {
+                Width = 3,
+                Height = TimelineMarkersCanvas.Height,
+                RadiusX = 1,
+                RadiusY = 1,
+                Fill = marker.AnnotationKind == ObbAnnotationKind.Negative
+                    ? Brushes.Orange
+                    : Brushes.LimeGreen
+            };
+            Canvas.SetLeft(line, x - line.Width / 2);
+            TimelineMarkersCanvas.Children.Add(line);
         }
     }
 
@@ -1341,7 +1438,10 @@ public partial class MainWindow : Window
         ManualAnnotationButton.IsEnabled = active;
         NegativeAnnotationButton.IsEnabled = active;
         DeleteAnnotationButton.IsEnabled = active && _existingAnnotations.Count > 0;
-        SkipAnnotationButton.IsEnabled = active && _videoSession is not null;
+        PreviousAnnotationButton.IsEnabled = active &&
+                                             _timelineAnnotations.Any(marker => marker.FrameIndex < _currentFrameIndex);
+        NextAnnotationButton.IsEnabled = active &&
+                                         _timelineAnnotations.Any(marker => marker.FrameIndex > _currentFrameIndex);
     }
 
     private static bool IsImage(string path)

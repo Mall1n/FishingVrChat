@@ -114,6 +114,57 @@ public sealed partial class ObbDatasetWriter
         return matches;
     }
 
+    /// <summary>
+    /// Возвращает все сохранённые annotation текущего видео для timeline и навигации между метками.
+    /// </summary>
+    public async Task<IReadOnlyList<ObbDatasetTimelineMarker>> FindTimelineMarkersAsync(
+        string datasetRoot,
+        string sourcePath,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(datasetRoot);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
+
+        var sourcePrefix = CreateSourceSamplePrefix(sourcePath);
+        var markers = new Dictionary<long, ObbDatasetTimelineMarker>();
+        foreach (var split in Enum.GetValues<DatasetSplit>())
+        {
+            var metadataDirectory = Path.Combine(
+                datasetRoot,
+                "metadata",
+                split.ToString().ToLowerInvariant());
+            if (!Directory.Exists(metadataDirectory))
+            {
+                continue;
+            }
+
+            foreach (var metadataPath in Directory.EnumerateFiles(metadataDirectory, $"{sourcePrefix}*.json"))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    var json = await File.ReadAllTextAsync(metadataPath, cancellationToken);
+                    var metadata = JsonSerializer.Deserialize<ObbDatasetMetadata>(json, JsonOptions);
+                    if (metadata?.FrameIndex is not long frameIndex ||
+                        !string.Equals(metadata.SourcePath, sourcePath, StringComparison.OrdinalIgnoreCase) ||
+                        !Enum.TryParse<ObbAnnotationKind>(metadata.AnnotationKind, ignoreCase: true, out var kind))
+                    {
+                        continue;
+                    }
+
+                    markers.TryAdd(frameIndex, new ObbDatasetTimelineMarker(frameIndex, split, kind));
+                }
+                catch (Exception exception) when (
+                    exception is IOException or UnauthorizedAccessException or JsonException)
+                {
+                    // Повреждённый metadata-файл не должен скрывать остальные метки видео.
+                }
+            }
+        }
+
+        return markers.Values.OrderBy(marker => marker.FrameIndex).ToArray();
+    }
+
     public Task<ObbDatasetDeleteResult> DeleteExistingAsync(
         string datasetRoot,
         string sourcePath,
@@ -214,11 +265,16 @@ public sealed partial class ObbDatasetWriter
 
     private static string CreateSampleId(string sourcePath, long? frameIndex)
     {
+        var frameSuffix = frameIndex is null ? "image" : $"f{frameIndex.Value + 1:D6}";
+        return $"{CreateSourceSamplePrefix(sourcePath)}{frameSuffix}";
+    }
+
+    private static string CreateSourceSamplePrefix(string sourcePath)
+    {
         var sourceName = InvalidFileNameRegex().Replace(Path.GetFileNameWithoutExtension(sourcePath), "_");
         var pathHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sourcePath)))[..8]
             .ToLowerInvariant();
-        var frameSuffix = frameIndex is null ? "image" : $"f{frameIndex.Value + 1:D6}";
-        return $"{sourceName}_{pathHash}_{frameSuffix}";
+        return $"{sourceName}_{pathHash}_";
     }
 
     private static string CreateLabel(
@@ -310,6 +366,14 @@ public sealed record ObbDatasetExistingSample(
     ObbAnnotationKind AnnotationKind,
     IReadOnlyList<ImagePoint> Corners,
     string MetadataPath);
+
+/// <summary>
+/// Представляет сохранённую annotation одного кадра для timeline и переходов внутри исходного видео.
+/// </summary>
+public sealed record ObbDatasetTimelineMarker(
+    long FrameIndex,
+    DatasetSplit Split,
+    ObbAnnotationKind AnnotationKind);
 
 /// <summary>
 /// Описывает результат удаления файлов одного sample из всех dataset split.

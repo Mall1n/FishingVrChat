@@ -51,9 +51,10 @@ dotnet build FishingVrChat.sln
 - восстановление, исправление, перезапись и удаление ранее сохранённой разметки текущего кадра;
 - автоматическое устранение копии одного sample в другом split при переносе;
 - сохранение последнего видео, позиции, dataset, split, HSV и состояния режима разметки между запусками;
+- отображение существующих annotation на timeline и переходы к предыдущей/следующей метке;
 - LRU-кэш последних результатов и показатели cold start, median и p95;
 - CLI для проверки OBB dataset, обучения, независимой оценки Test и экспорта ONNX;
-- ONNX Runtime detector с GPU backend DirectML, OBB overlay, geometry gate и perspective correction;
+- ONNX Runtime detector с совместимым CPU backend, OBB overlay, geometry gate и perspective correction;
 - выбор ONNX-модели в интерфейсе и восстановление выбранного detector между запусками;
 - контракты кадров и начальный безопасный controller.
 
@@ -66,7 +67,6 @@ dotnet build FishingVrChat.sln
 - `M` — поставить четыре точки вручную;
 - `N` — сохранить кадр как negative без рамки;
 - `Delete` — после подтверждения удалить PNG, label и metadata текущего sample;
-- `S` — пропустить кадр без сохранения.
 
 После сохранения приложение остаётся на текущем кадре. Голубая OBB означает предложение legacy detector, зелёная — загруженный ground truth, оранжевая — редактирование.
 
@@ -97,4 +97,6 @@ dataset/
 2. Укажи `artifacts\models\fishing-panel-obb.onnx` или сохранённую резервную копию модели.
 3. Открой видео и проверь исходный overlay, выпрямленную шкалу и `Диагностика ONNX`.
 
-В diagnostic preview зелёная OBB прошла весь deployment gate, оранжевая имеет достаточный confidence, но не прошла geometry gate, серая находится ниже рабочего confidence. Первый кадр включает cold start DirectML; для оценки скорости следует смотреть median и p95 после нескольких кадров. При выключении `Активен` приложение возвращается к legacy OpenCV detector и снова включает HSV Lab.
+В diagnostic preview зелёная OBB прошла весь deployment gate, оранжевая имеет достаточный confidence, но не прошла geometry gate, серая находится ниже рабочего confidence. Первый кадр включает cold start ONNX Runtime; для оценки скорости следует смотреть median и p95 после нескольких кадров. При выключении `Активен` приложение возвращается к legacy OpenCV detector и снова включает HSV Lab.
+
+На timeline зелёные штрихи обозначают positive annotation, оранжевые — negative. Кнопки в блоке `OBB-разметка` переходят к ближайшей предыдущей или следующей метке текущего видео.
