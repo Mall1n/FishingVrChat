@@ -1281,9 +1281,8 @@ public partial class MainWindow : Window
         }
 
         var arguments = new List<string> { isTraining ? "train" : "check", "--dataset", _datasetRoot };
-        var runName = isTraining
-            ? $"fishing-panel-obb-{DateTime.Now:yyyyMMdd-HHmmss}"
-            : null;
+        var runVersion = isTraining ? GetNextTrainingVersion(mlPaths.RepositoryRoot) : (int?)null;
+        var runName = runVersion is null ? null : $"fishing-panel-obb-{runVersion}";
         if (isTraining)
         {
             if (!TryGetTrainingOptions(out var epochs, out var patience, out var batch))
@@ -1300,7 +1299,8 @@ public partial class MainWindow : Window
                 "--device", GetSelectedTrainingDevice(),
                 "--model", GetSelectedTrainingModel(),
                 "--project", Path.Combine(mlPaths.RepositoryRoot, "artifacts", "ml"),
-                "--name", runName!
+                "--name", runName!,
+                "--statistics-number", runVersion!.Value.ToString()
             ]);
         }
 
@@ -1551,6 +1551,45 @@ public partial class MainWindow : Window
         }
 
         return null;
+    }
+
+    private static int GetNextTrainingVersion(string repositoryRoot)
+    {
+        const string runPrefix = "fishing-panel-obb";
+        var artifactsDirectory = Path.Combine(repositoryRoot, "artifacts", "ml");
+        var maximumVersion = 0;
+        if (Directory.Exists(artifactsDirectory))
+        {
+            foreach (var directory in Directory.EnumerateDirectories(artifactsDirectory, $"{runPrefix}*"))
+            {
+                var name = Path.GetFileName(directory);
+                if (string.Equals(name, runPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    maximumVersion = Math.Max(maximumVersion, 1);
+                }
+                else if (name.StartsWith($"{runPrefix}-", StringComparison.OrdinalIgnoreCase) &&
+                         int.TryParse(name[(runPrefix.Length + 1)..], out var version) &&
+                         version > 0)
+                {
+                    maximumVersion = Math.Max(maximumVersion, version);
+                }
+            }
+
+            var logsDirectory = Path.Combine(artifactsDirectory, "logs");
+            if (Directory.Exists(logsDirectory))
+            {
+                foreach (var path in Directory.EnumerateFiles(logsDirectory, "stats-*.txt"))
+                {
+                    var name = Path.GetFileNameWithoutExtension(path);
+                    if (int.TryParse(name["stats-".Length..], out var version) && version > 0)
+                    {
+                        maximumVersion = Math.Max(maximumVersion, version);
+                    }
+                }
+            }
+        }
+
+        return maximumVersion + 1;
     }
 
     private void DatasetSplit_SelectionChanged(object sender, SelectionChangedEventArgs e)

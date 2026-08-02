@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import json
 import math
+import re
 import shutil
 import sys
 from collections import defaultdict
@@ -320,6 +322,74 @@ def command_train(args: argparse.Namespace) -> None:
         mosaic=0.5,
         close_mosaic=15,
     )
+    run_directory = Path(model.trainer.save_dir).resolve()
+    statistics_path = write_training_statistics(run_directory, project, args.statistics_number)
+    print(f"Статистика обучения: {statistics_path}")
+
+
+def write_training_statistics(
+    run_directory: Path,
+    project_directory: Path,
+    statistics_number: int | None = None,
+) -> Path:
+    """Сохраняет понятную сводку Validation-метрик завершённого Train-запуска."""
+
+    results_path = run_directory / "results.csv"
+    if not results_path.is_file():
+        raise FileNotFoundError(f"Не найден results.csv завершённого запуска: {results_path}")
+
+    with results_path.open(encoding="utf-8", newline="") as stream:
+        rows = list(csv.DictReader(stream))
+    if not rows:
+        raise ValueError(f"results.csv не содержит завершённых эпох: {results_path}")
+
+    metric_name = "metrics/mAP50-95(B)"
+    best_row = max(rows, key=lambda row: float(row[metric_name]))
+    final_row = rows[-1]
+    logs_directory = project_directory / "logs"
+    logs_directory.mkdir(parents=True, exist_ok=True)
+    existing_numbers = [
+        int(match.group(1))
+        for path in logs_directory.glob("stats-*.txt")
+        if (match := re.fullmatch(r"stats-(\d+)", path.stem))
+    ]
+    next_number = max(existing_numbers, default=0) + 1
+    if statistics_number is not None and statistics_number <= 0:
+        raise ValueError("Номер статистики должен быть положительным.")
+    report_number = statistics_number or next_number
+    statistics_path = logs_directory / f"stats-{report_number}.txt"
+    if statistics_path.exists():
+        raise FileExistsError(f"Отчёт статистики уже существует: {statistics_path}")
+
+    def metric(row: dict[str, str], name: str) -> str:
+        return f"{float(row[name]):.4f}"
+
+    def section(title: str, row: dict[str, str]) -> list[str]:
+        return [
+            title,
+            f"  Epoch: {row['epoch']}",
+            f"  Precision: {metric(row, 'metrics/precision(B)')}",
+            f"  Recall: {metric(row, 'metrics/recall(B)')}",
+            f"  mAP50: {metric(row, 'metrics/mAP50(B)')}",
+            f"  mAP50-95: {metric(row, 'metrics/mAP50-95(B)')}",
+        ]
+
+    lines = [
+        "Статистика обучения YOLO OBB",
+        f"Запуск: {run_directory.name}",
+        f"Завершено эпох: {len(rows)}",
+        f"Results: {results_path}",
+        f"Best checkpoint: {run_directory / 'weights' / 'best.pt'}",
+        f"Last checkpoint: {run_directory / 'weights' / 'last.pt'}",
+        "",
+        *section("Лучшая Validation-эпоха по mAP50-95:", best_row),
+        "",
+        *section("Последняя завершённая эпоха:", final_row),
+        "",
+        "mAP50-95 — основная строгая метрика совпадения OBB; для итоговой проверки используйте Test на отдельном split.",
+    ]
+    statistics_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return statistics_path
 
 
 def print_decision_gate_summary(
@@ -456,6 +526,7 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--device", default="auto", help="auto, cpu либо номер GPU, например 0.")
     train.add_argument("--project", type=Path, default=DEFAULT_PROJECT)
     train.add_argument("--name", default="fishing-panel-obb")
+    train.add_argument("--statistics-number", type=int)
     train.set_defaults(handler=command_train)
 
     test = commands.add_parser("test", help="Один раз оценить выбранный checkpoint на Test.")
