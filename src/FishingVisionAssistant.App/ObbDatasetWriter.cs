@@ -62,7 +62,13 @@ public sealed partial class ObbDatasetWriter
             DateTimeOffset.UtcNow);
         var json = JsonSerializer.Serialize(metadata, JsonOptions);
         await WriteTextWithDirectoryRetryAsync(metadataPath, json, cancellationToken);
-        RemoveCopiesFromOtherSplits(datasetRoot, sampleId, sample.Split);
+        await RemoveMatchingSamplesExceptAsync(
+            datasetRoot,
+            sample.SourcePath,
+            sample.FrameIndex,
+            sampleId,
+            sample.Split,
+            cancellationToken);
         return new ObbDatasetSaveResult(sampleId, imagePath, labelPath, metadataPath);
     }
 
@@ -89,26 +95,27 @@ public sealed partial class ObbDatasetWriter
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(datasetRoot);
         ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
-        var sampleId = CreateSampleId(sourcePath, frameIndex);
         var matches = new List<ObbDatasetExistingSample>();
         foreach (var split in Enum.GetValues<DatasetSplit>())
         {
-            var splitName = split.ToString().ToLowerInvariant();
-            var metadataPath = Path.Combine(datasetRoot, "metadata", splitName, $"{sampleId}.json");
-            if (!File.Exists(metadataPath))
+            foreach (var metadataPath in EnumerateMetadataCandidates(datasetRoot, split, sourcePath, frameIndex))
             {
-                continue;
-            }
+                var metadata = await TryReadMetadataAsync(metadataPath, cancellationToken);
+                if (metadata is null ||
+                    !MatchesSource(metadata, sourcePath, frameIndex) ||
+                    !Enum.TryParse<ObbAnnotationKind>(metadata.AnnotationKind, ignoreCase: true, out var kind))
+                {
+                    continue;
+                }
 
-            var json = await File.ReadAllTextAsync(metadataPath, cancellationToken);
-            var metadata = JsonSerializer.Deserialize<ObbDatasetMetadata>(json, JsonOptions);
-            if (metadata is null ||
-                !Enum.TryParse<ObbAnnotationKind>(metadata.AnnotationKind, ignoreCase: true, out var kind))
-            {
-                continue;
+                var storedSampleId = Path.GetFileNameWithoutExtension(metadataPath);
+                matches.Add(new ObbDatasetExistingSample(
+                    storedSampleId,
+                    split,
+                    kind,
+                    metadata.Corners,
+                    metadataPath));
             }
-
-            matches.Add(new ObbDatasetExistingSample(sampleId, split, kind, metadata.Corners, metadataPath));
         }
 
         return matches;
@@ -125,7 +132,7 @@ public sealed partial class ObbDatasetWriter
         ArgumentException.ThrowIfNullOrWhiteSpace(datasetRoot);
         ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
 
-        var sourcePrefix = CreateSourceSamplePrefix(sourcePath);
+        var sourceNamePrefix = CreateSourceNamePrefix(sourcePath);
         var markers = new Dictionary<long, ObbDatasetTimelineMarker>();
         foreach (var split in Enum.GetValues<DatasetSplit>())
         {
@@ -138,13 +145,12 @@ public sealed partial class ObbDatasetWriter
                 continue;
             }
 
-            foreach (var metadataPath in Directory.EnumerateFiles(metadataDirectory, $"{sourcePrefix}*.json"))
+            foreach (var metadataPath in Directory.EnumerateFiles(metadataDirectory, $"{sourceNamePrefix}*.json"))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
-                    var json = await File.ReadAllTextAsync(metadataPath, cancellationToken);
-                    var metadata = JsonSerializer.Deserialize<ObbDatasetMetadata>(json, JsonOptions);
+                    var metadata = await TryReadMetadataAsync(metadataPath, cancellationToken);
                     if (metadata?.FrameIndex is not long frameIndex ||
                         !string.Equals(metadata.SourcePath, sourcePath, StringComparison.OrdinalIgnoreCase) ||
                         !Enum.TryParse<ObbAnnotationKind>(metadata.AnnotationKind, ignoreCase: true, out var kind))
@@ -165,7 +171,7 @@ public sealed partial class ObbDatasetWriter
         return markers.Values.OrderBy(marker => marker.FrameIndex).ToArray();
     }
 
-    public Task<ObbDatasetDeleteResult> DeleteExistingAsync(
+    public async Task<ObbDatasetDeleteResult> DeleteExistingAsync(
         string datasetRoot,
         string sourcePath,
         long? frameIndex,
@@ -173,26 +179,30 @@ public sealed partial class ObbDatasetWriter
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(datasetRoot);
         ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
-        cancellationToken.ThrowIfCancellationRequested();
-        var sampleId = CreateSampleId(sourcePath, frameIndex);
+        var expectedSampleId = CreateSampleId(sourcePath, frameIndex);
         var deletedFiles = 0;
         var affectedSplits = new List<DatasetSplit>();
         foreach (var split in Enum.GetValues<DatasetSplit>())
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var splitName = split.ToString().ToLowerInvariant();
-            var paths = new[]
+            var matchingSampleIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var metadataPath in EnumerateMetadataCandidates(datasetRoot, split, sourcePath, frameIndex))
             {
-                Path.Combine(datasetRoot, "images", splitName, $"{sampleId}.png"),
-                Path.Combine(datasetRoot, "labels", splitName, $"{sampleId}.txt"),
-                Path.Combine(datasetRoot, "metadata", splitName, $"{sampleId}.json")
-            };
+                var metadata = await TryReadMetadataAsync(metadataPath, cancellationToken);
+                if (metadata is not null && MatchesSource(metadata, sourcePath, frameIndex))
+                {
+                    matchingSampleIds.Add(Path.GetFileNameWithoutExtension(metadataPath));
+                }
+            }
+
+            // Текущий ID удаляется и при отсутствующем metadata, чтобы не оставлять неполную тройку файлов.
+            matchingSampleIds.Add(expectedSampleId);
             var splitHadFiles = false;
-            foreach (var path in paths.Where(File.Exists))
+            foreach (var sampleId in matchingSampleIds)
             {
-                File.Delete(path);
-                deletedFiles++;
-                splitHadFiles = true;
+                var deletedForSample = DeleteSampleFiles(datasetRoot, split, sampleId);
+                deletedFiles += deletedForSample;
+                splitHadFiles |= deletedForSample > 0;
             }
 
             if (splitHadFiles)
@@ -201,7 +211,7 @@ public sealed partial class ObbDatasetWriter
             }
         }
 
-        return Task.FromResult(new ObbDatasetDeleteResult(sampleId, deletedFiles, affectedSplits));
+        return new ObbDatasetDeleteResult(expectedSampleId, deletedFiles, affectedSplits);
     }
 
     private static void ValidateSample(ObbDatasetSample sample)
@@ -216,18 +226,98 @@ public sealed partial class ObbDatasetWriter
         }
     }
 
-    private static void RemoveCopiesFromOtherSplits(
+    private static async Task RemoveMatchingSamplesExceptAsync(
         string datasetRoot,
-        string sampleId,
-        DatasetSplit targetSplit)
+        string sourcePath,
+        long? frameIndex,
+        string retainedSampleId,
+        DatasetSplit retainedSplit,
+        CancellationToken cancellationToken)
     {
-        foreach (var split in Enum.GetValues<DatasetSplit>().Where(split => split != targetSplit))
+        foreach (var split in Enum.GetValues<DatasetSplit>())
         {
-            var splitName = split.ToString().ToLowerInvariant();
-            File.Delete(Path.Combine(datasetRoot, "images", splitName, $"{sampleId}.png"));
-            File.Delete(Path.Combine(datasetRoot, "labels", splitName, $"{sampleId}.txt"));
-            File.Delete(Path.Combine(datasetRoot, "metadata", splitName, $"{sampleId}.json"));
+            foreach (var metadataPath in EnumerateMetadataCandidates(datasetRoot, split, sourcePath, frameIndex))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var metadata = await TryReadMetadataAsync(metadataPath, cancellationToken);
+                if (metadata is null || !MatchesSource(metadata, sourcePath, frameIndex))
+                {
+                    continue;
+                }
+
+                var storedSampleId = Path.GetFileNameWithoutExtension(metadataPath);
+                if (split == retainedSplit &&
+                    string.Equals(storedSampleId, retainedSampleId, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                DeleteSampleFiles(datasetRoot, split, storedSampleId);
+            }
         }
+    }
+
+    private static IEnumerable<string> EnumerateMetadataCandidates(
+        string datasetRoot,
+        DatasetSplit split,
+        string sourcePath,
+        long? frameIndex)
+    {
+        var metadataDirectory = Path.Combine(
+            datasetRoot,
+            "metadata",
+            split.ToString().ToLowerInvariant());
+        if (!Directory.Exists(metadataDirectory))
+        {
+            return [];
+        }
+
+        var frameSuffix = CreateFrameSuffix(frameIndex);
+        return Directory.EnumerateFiles(
+            metadataDirectory,
+            $"{CreateSourceNamePrefix(sourcePath)}*_{frameSuffix}.json");
+    }
+
+    private static async Task<ObbDatasetMetadata?> TryReadMetadataAsync(
+        string metadataPath,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var json = await File.ReadAllTextAsync(metadataPath, cancellationToken);
+            return JsonSerializer.Deserialize<ObbDatasetMetadata>(json, JsonOptions);
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static bool MatchesSource(
+        ObbDatasetMetadata metadata,
+        string sourcePath,
+        long? frameIndex) =>
+        metadata.FrameIndex == frameIndex &&
+        string.Equals(metadata.SourcePath, sourcePath, StringComparison.OrdinalIgnoreCase);
+
+    private static int DeleteSampleFiles(string datasetRoot, DatasetSplit split, string sampleId)
+    {
+        var splitName = split.ToString().ToLowerInvariant();
+        var paths = new[]
+        {
+            Path.Combine(datasetRoot, "images", splitName, $"{sampleId}.png"),
+            Path.Combine(datasetRoot, "labels", splitName, $"{sampleId}.txt"),
+            Path.Combine(datasetRoot, "metadata", splitName, $"{sampleId}.json")
+        };
+        var deletedFiles = 0;
+        foreach (var path in paths.Where(File.Exists))
+        {
+            File.Delete(path);
+            deletedFiles++;
+        }
+
+        return deletedFiles;
     }
 
     private static async Task WriteBytesWithDirectoryRetryAsync(
@@ -265,16 +355,23 @@ public sealed partial class ObbDatasetWriter
 
     private static string CreateSampleId(string sourcePath, long? frameIndex)
     {
-        var frameSuffix = frameIndex is null ? "image" : $"f{frameIndex.Value + 1:D6}";
-        return $"{CreateSourceSamplePrefix(sourcePath)}{frameSuffix}";
+        return $"{CreateSourceSamplePrefix(sourcePath)}{CreateFrameSuffix(frameIndex)}";
+    }
+
+    private static string CreateFrameSuffix(long? frameIndex) =>
+        frameIndex is null ? "image" : $"f{frameIndex.Value + 1:D6}";
+
+    private static string CreateSourceNamePrefix(string sourcePath)
+    {
+        var sourceName = InvalidFileNameRegex().Replace(Path.GetFileNameWithoutExtension(sourcePath), "_");
+        return $"{sourceName}_";
     }
 
     private static string CreateSourceSamplePrefix(string sourcePath)
     {
-        var sourceName = InvalidFileNameRegex().Replace(Path.GetFileNameWithoutExtension(sourcePath), "_");
         var pathHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sourcePath)))[..8]
             .ToLowerInvariant();
-        return $"{sourceName}_{pathHash}_";
+        return $"{CreateSourceNamePrefix(sourcePath)}{pathHash}_";
     }
 
     private static string CreateLabel(
