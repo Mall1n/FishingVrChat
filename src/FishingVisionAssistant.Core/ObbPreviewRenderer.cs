@@ -22,6 +22,38 @@ public static class ObbPreviewRenderer
             return null;
         }
 
+        return RenderSource(source, corners);
+    }
+
+    /// <summary>
+    /// Строит preview OBB напрямую из BGR24 buffer текущего кадра без PNG-кодирования и повторного декодирования видео.
+    /// </summary>
+    public static byte[]? RenderBgr24(
+        byte[] bgr24Pixels,
+        int width,
+        int height,
+        int stride,
+        IReadOnlyList<ImagePoint> corners)
+    {
+        ArgumentNullException.ThrowIfNull(bgr24Pixels);
+        ArgumentNullException.ThrowIfNull(corners);
+        if (width <= 0 || height <= 0 || stride < checked(width * 3) ||
+            bgr24Pixels.Length < checked(stride * height))
+        {
+            return null;
+        }
+
+        using var source = Mat.FromPixelData(
+            height,
+            width,
+            MatType.CV_8UC3,
+            bgr24Pixels,
+            stride);
+        return RenderSource(source, corners);
+    }
+
+    private static byte[]? RenderSource(Mat source, IReadOnlyList<ImagePoint> corners)
+    {
         var ordered = OrderCorners(corners, source.Width, source.Height);
         var width = (Distance(ordered[0], ordered[1]) + Distance(ordered[3], ordered[2])) / 2;
         var height = (Distance(ordered[0], ordered[3]) + Distance(ordered[1], ordered[2])) / 2;

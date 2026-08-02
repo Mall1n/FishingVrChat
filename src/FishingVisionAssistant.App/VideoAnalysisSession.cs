@@ -20,13 +20,14 @@ public sealed class VideoAnalysisSession : IDisposable
 
     public VideoMetadata Metadata => _videoSource.Metadata;
 
-    public VideoFrameAnalysis? AnalyzeFrame(long frameIndex)
+    public VideoFrameAnalysisResult? AnalyzeFrame(long frameIndex, bool includeSourceFrame)
     {
-        if (_cache.TryGet(frameIndex, out var cached))
+        if (!includeSourceFrame && _cache.TryGet(frameIndex, out var cached))
         {
-            return cached;
+            return new VideoFrameAnalysisResult(cached, null);
         }
 
+        // Для разметки detector и исходный buffer должны быть получены из одного декодирования.
         var frame = _videoSource.ReadFrame(frameIndex);
         if (frame is null)
         {
@@ -45,7 +46,7 @@ public sealed class VideoAnalysisSession : IDisposable
             detection,
             false);
         _cache.Add(analysis);
-        return analysis;
+        return new VideoFrameAnalysisResult(analysis, includeSourceFrame ? frame : null);
     }
 
     public void UpdateDetector(IPanelDetector panelDetector)
@@ -54,13 +55,7 @@ public sealed class VideoAnalysisSession : IDisposable
         _cache.Clear();
     }
 
-    public byte[] ExportFramePng(long frameIndex)
-    {
-        var frame = _videoSource.ReadFrame(frameIndex);
-        return frame is null
-            ? throw new InvalidOperationException($"Не удалось подготовить кадр {frameIndex + 1} для разметки.")
-            : FramePngEncoder.Encode(frame);
-    }
+    public VideoFrame? ReadFrame(long frameIndex) => _videoSource.ReadFrame(frameIndex);
 
     public void Dispose() => _videoSource.Dispose();
 }

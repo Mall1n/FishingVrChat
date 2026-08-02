@@ -53,6 +53,7 @@ public partial class MainWindow : Window
     private long _currentFrameIndex;
     private long _lastVideoFrameIndex;
     private byte[]? _annotationFramePng;
+    private VideoFrame? _annotationVideoFrame;
     private IReadOnlyList<ObbDatasetExistingSample> _existingAnnotations = [];
     private IReadOnlyList<ObbDatasetTimelineMarker> _timelineAnnotations = [];
     private double _playbackSpeed = 1;
@@ -334,19 +335,23 @@ public partial class MainWindow : Window
 
         try
         {
-            var analysis = await Task.Run(() => session.AnalyzeFrame(frameIndex));
+            var includeSourceFrame = AnnotationModeCheckBox.IsChecked == true;
+            var analysisResult = await Task.Run(
+                () => session.AnalyzeFrame(frameIndex, includeSourceFrame));
             if (!ReferenceEquals(session, _videoSession))
             {
                 return;
             }
 
-            if (analysis is null)
+            if (analysisResult is null)
             {
                 _currentFrameIndex = frameIndex;
                 _lastVideoFrameIndex = frameIndex;
                 _viewModel.ApplyFrameDecodeFailure(session.Metadata, frameIndex);
                 return;
             }
+
+            var analysis = analysisResult.Analysis;
 
             if (!analysis.IsFromCache)
             {
@@ -361,7 +366,8 @@ public partial class MainWindow : Window
                 _performanceStatistics.GetSnapshot());
             if (AnnotationModeCheckBox.IsChecked == true)
             {
-                _annotationFramePng = await Task.Run(() => session.ExportFramePng(analysis.FrameIndex));
+                _annotationVideoFrame = analysisResult.SourceFrame ??
+                    await Task.Run(() => session.ReadFrame(analysis.FrameIndex));
             }
 
             SetCurrentDetection(analysis.PanelDetection);
@@ -1150,6 +1156,7 @@ public partial class MainWindow : Window
             if (AnnotationModeCheckBox.IsChecked != true)
             {
                 _annotationFramePng = null;
+                _annotationVideoFrame = null;
                 return;
             }
 
@@ -1159,6 +1166,7 @@ public partial class MainWindow : Window
         else
         {
             _annotationFramePng = null;
+            _annotationVideoFrame = null;
             _annotationOverlay.Clear();
             _viewModel.SetTrainingBoundsPreview(null);
             AnnotationStatusText.Text = "Режим разметки выключен.";
@@ -1682,9 +1690,20 @@ public partial class MainWindow : Window
         {
             var session = _videoSession;
             long? frameIndex = session is null ? null : _currentFrameIndex;
-            var framePng = session is not null
-                ? await Task.Run(() => session.ExportFramePng(_currentFrameIndex))
-                : FramePngEncoder.NormalizeEncodedImage(await File.ReadAllBytesAsync(sourcePath));
+            var videoFrame = _annotationVideoFrame;
+            var imagePng = _annotationFramePng;
+            if (session is not null && (videoFrame is null || videoFrame.FrameIndex != frameIndex))
+            {
+                AnnotationStatusText.Text = "Исходный кадр разметки ещё не готов. Повторите сохранение через мгновение.";
+                return;
+            }
+
+            if (session is null && imagePng is null)
+            {
+                AnnotationStatusText.Text = "Исходное изображение разметки ещё не готово. Повторите сохранение через мгновение.";
+                return;
+            }
+
             var corners = kind == ObbAnnotationKind.Negative
                 ? null
                 : _annotationOverlay!.GetCorners();
@@ -1695,13 +1714,18 @@ public partial class MainWindow : Window
                     _currentDetection.Confidence,
                     _currentDetection.Reason,
                     _currentDetection.Corners);
+            var imageWidth = videoFrame?.Width ?? _viewModel.SourcePreview.PixelWidth;
+            var imageHeight = videoFrame?.Height ?? _viewModel.SourcePreview.PixelHeight;
+            var framePng = videoFrame is not null
+                ? await Task.Run(() => FramePngEncoder.Encode(videoFrame))
+                : imagePng!;
             var sample = new ObbDatasetSample(
                 sourcePath,
                 frameIndex,
                 GetSelectedSplit(),
                 kind,
-                _viewModel.SourcePreview.PixelWidth,
-                _viewModel.SourcePreview.PixelHeight,
+                imageWidth,
+                imageHeight,
                 framePng,
                 corners,
                 detectorProposal);
@@ -2059,6 +2083,7 @@ public partial class MainWindow : Window
         _liveDetectionOverlay?.Clear();
         _existingAnnotations = [];
         _annotationFramePng = null;
+        _annotationVideoFrame = null;
         _viewModel.SetTrainingBoundsPreview(null);
         SetExistingAnnotationStatus(
             string.IsNullOrWhiteSpace(_datasetRoot)
@@ -2114,7 +2139,9 @@ public partial class MainWindow : Window
 
     private async Task EnsureAnnotationFrameAsync()
     {
-        if (_annotationFramePng is not null)
+        if (_annotationFramePng is not null ||
+            _annotationVideoFrame is { FrameIndex: var annotationFrameIndex } &&
+            annotationFrameIndex == _currentFrameIndex)
         {
             return;
         }
@@ -2123,10 +2150,10 @@ public partial class MainWindow : Window
         var frameIndex = _currentFrameIndex;
         if (session is not null)
         {
-            var encodedFrame = await Task.Run(() => session.ExportFramePng(frameIndex));
+            var videoFrame = await Task.Run(() => session.ReadFrame(frameIndex));
             if (ReferenceEquals(session, _videoSession) && frameIndex == _currentFrameIndex)
             {
-                _annotationFramePng = encodedFrame;
+                _annotationVideoFrame = videoFrame;
             }
 
             return;
@@ -2144,7 +2171,7 @@ public partial class MainWindow : Window
         _annotationPreviewVersion++;
         _annotationPreviewTimer.Stop();
         if (AnnotationModeCheckBox.IsChecked != true ||
-            _annotationFramePng is null ||
+            (_annotationFramePng is null && _annotationVideoFrame is null) ||
             _annotationOverlay?.HasCompleteBox != true)
         {
             _viewModel.SetTrainingBoundsPreview(null);
@@ -2164,8 +2191,9 @@ public partial class MainWindow : Window
         }
 
         var encodedFrame = _annotationFramePng;
+        var videoFrame = _annotationVideoFrame;
         var corners = _annotationOverlay?.GetCorners();
-        if (encodedFrame is null || corners?.Count != 4)
+        if ((encodedFrame is null && videoFrame is null) || corners?.Count != 4)
         {
             _viewModel.SetTrainingBoundsPreview(null);
             return;
@@ -2175,7 +2203,15 @@ public partial class MainWindow : Window
         _isAnnotationPreviewRendering = true;
         try
         {
-            var preview = await Task.Run(() => ObbPreviewRenderer.Render(encodedFrame, corners));
+            var preview = await Task.Run(
+                () => videoFrame is not null
+                    ? ObbPreviewRenderer.RenderBgr24(
+                        videoFrame.Bgr24Pixels,
+                        videoFrame.Width,
+                        videoFrame.Height,
+                        videoFrame.Stride,
+                        corners)
+                    : ObbPreviewRenderer.Render(encodedFrame!, corners));
             if (version == _annotationPreviewVersion)
             {
                 _viewModel.SetTrainingBoundsPreview(preview);
