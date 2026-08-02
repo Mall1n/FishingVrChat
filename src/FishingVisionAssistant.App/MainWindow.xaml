@@ -37,6 +37,12 @@
                 Content="Запустить Live capture"
                 IsEnabled="True"
                 ToolTip="Выбрать окно VRChat или монитор через системный picker" />
+        <Button x:Name="PauseLiveCaptureButton"
+                Margin="8,0,0,0"
+                Click="PauseLiveCapture_Click"
+                Content="Приостановить"
+                IsEnabled="False"
+                ToolTip="Заморозить live-анализ без закрытия выбранного окна" />
       </StackPanel>
     </DockPanel>
 
@@ -316,19 +322,12 @@
                           Width="180"
                           Margin="12,0,0,0"
                           HorizontalAlignment="Right"
-                          Background="#F3F6F8"
-                          Foreground="#101419"
                           SelectedIndex="0"
-                          SelectionChanged="OnnxBackend_SelectionChanged">
-                  <ComboBoxItem Tag="Auto">
-                    <TextBlock Foreground="#101419" Text="Auto (DirectML → CPU)" />
-                  </ComboBoxItem>
-                  <ComboBoxItem Tag="DirectMl">
-                    <TextBlock Foreground="#101419" Text="DirectML" />
-                  </ComboBoxItem>
-                  <ComboBoxItem Tag="Cpu">
-                    <TextBlock Foreground="#101419" Text="CPU" />
-                  </ComboBoxItem>
+                          SelectionChanged="OnnxBackend_SelectionChanged"
+                          Style="{StaticResource DarkComboBoxStyle}">
+                  <ComboBoxItem Content="Auto (DirectML → CPU)" Tag="Auto" />
+                  <ComboBoxItem Content="DirectML" Tag="DirectMl" />
+                  <ComboBoxItem Content="CPU" Tag="Cpu" />
                 </ComboBox>
               </DockPanel>
               <Button x:Name="ConfigureOnnxGateButton"
@@ -353,6 +352,64 @@
                          FontSize="11"
                          Foreground="{StaticResource SecondaryTextBrush}"
                          Text="Gate: confidence ≥ 50 %, aspect ratio ≥ 10. Backend: Auto (DirectML → CPU)."
+                         TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+
+          <Border Margin="0,14,0,0"
+                  Padding="18"
+                  Background="{StaticResource PanelBackgroundBrush}"
+                  BorderBrush="{StaticResource PanelBorderBrush}"
+                  BorderThickness="1"
+                  CornerRadius="8">
+            <StackPanel>
+              <TextBlock FontSize="17" FontWeight="SemiBold" Text="Отображение Live" />
+              <CheckBox x:Name="PauseAllPreviewsCheckBox"
+                        Margin="0,12,0,0"
+                        Checked="LivePreviewSettings_Changed"
+                        Content="Приостановить все preview"
+                        Unchecked="LivePreviewSettings_Changed" />
+              <TextBlock Margin="0,12,0,4"
+                         Foreground="{StaticResource SecondaryTextBrush}"
+                         Text="Обновлять:" />
+              <CheckBox x:Name="SourcePreviewCheckBox"
+                        Margin="0,6,0,0"
+                        IsChecked="True"
+                        Checked="LivePreviewSettings_Changed"
+                        Content="Исходный кадр"
+                        Unchecked="LivePreviewSettings_Changed" />
+              <CheckBox x:Name="RectifiedPreviewCheckBox"
+                        Margin="0,6,0,0"
+                        IsChecked="True"
+                        Checked="LivePreviewSettings_Changed"
+                        Content="Выпрямленная шкала"
+                        Unchecked="LivePreviewSettings_Changed" />
+              <CheckBox x:Name="OnnxDiagnosticPreviewCheckBox"
+                        Margin="0,6,0,0"
+                        IsChecked="True"
+                        Checked="LivePreviewSettings_Changed"
+                        Content="Диагностика ONNX"
+                        Unchecked="LivePreviewSettings_Changed" />
+              <DockPanel Margin="0,14,0,0">
+                <TextBlock VerticalAlignment="Center" Text="Частота preview" />
+                <ComboBox x:Name="LivePreviewIntervalComboBox"
+                          Width="150"
+                          Margin="12,0,0,0"
+                          HorizontalAlignment="Right"
+                          SelectedIndex="2"
+                          SelectionChanged="LivePreviewInterval_SelectionChanged"
+                          Style="{StaticResource DarkComboBoxStyle}">
+                  <ComboBoxItem Content="Каждый кадр" Tag="1" />
+                  <ComboBoxItem Content="Каждый 2-й" Tag="2" />
+                  <ComboBoxItem Content="Каждый 4-й" Tag="4" />
+                  <ComboBoxItem Content="Каждый 8-й" Tag="8" />
+                </ComboBox>
+              </DockPanel>
+              <TextBlock x:Name="PreviewSettingsSummaryText"
+                         Margin="0,8,0,0"
+                         FontSize="11"
+                         Foreground="{StaticResource SecondaryTextBrush}"
+                         Text="Все preview · каждый 4-й обработанный кадр."
                          TextWrapping="Wrap" />
             </StackPanel>
           </Border>
@@ -391,20 +448,13 @@
                 <ComboBox x:Name="DatasetSplitComboBox"
                           Width="140"
                           Margin="12,0,0,0"
-                          Background="#F3F6F8"
-                          Foreground="#101419"
                           HorizontalAlignment="Right"
                           SelectionChanged="DatasetSplit_SelectionChanged"
-                          SelectedIndex="0">
-                  <ComboBoxItem Tag="Train">
-                    <TextBlock Foreground="#101419" Text="Train" />
-                  </ComboBoxItem>
-                  <ComboBoxItem Tag="Validation">
-                    <TextBlock Foreground="#101419" Text="Validation" />
-                  </ComboBoxItem>
-                  <ComboBoxItem Tag="Test">
-                    <TextBlock Foreground="#101419" Text="Test" />
-                  </ComboBoxItem>
+                          SelectedIndex="0"
+                          Style="{StaticResource DarkComboBoxStyle}">
+                  <ComboBoxItem Content="Train" Tag="Train" />
+                  <ComboBoxItem Content="Validation" Tag="Validation" />
+                  <ComboBoxItem Content="Test" Tag="Test" />
                 </ComboBox>
               </DockPanel>
               <TextBlock Margin="0,5,0,0"
@@ -514,14 +564,14 @@
 
         <StackPanel Grid.Row="1" Orientation="Horizontal">
           <Button Click="PreviousSecond_Click"
-                  IsEnabled="{Binding CanNavigate}"
+                  IsEnabled="{Binding CanUseTimelineButtons}"
                   Content="◀ 1 с"
                   ToolTip="Назад на одну секунду" />
-          <Button Click="PreviousFrame_Click" IsEnabled="{Binding CanNavigate}" Content="◀" />
-          <Button Click="PlayPause_Click" IsEnabled="{Binding CanNavigate}" Content="{Binding PlayPauseText}" />
-          <Button Click="NextFrame_Click" IsEnabled="{Binding CanNavigate}" Content="▶" />
+          <Button Click="PreviousFrame_Click" IsEnabled="{Binding CanUseTimelineButtons}" Content="◀" />
+          <Button Click="PlayPause_Click" IsEnabled="{Binding CanUseTimelineButtons}" Content="{Binding PlayPauseText}" />
+          <Button Click="NextFrame_Click" IsEnabled="{Binding CanUseTimelineButtons}" Content="▶" />
           <Button Click="NextSecond_Click"
-                  IsEnabled="{Binding CanNavigate}"
+                  IsEnabled="{Binding CanUseTimelineButtons}"
                   Content="1 с ▶"
                   ToolTip="Вперёд на одну секунду" />
         </StackPanel>

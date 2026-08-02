@@ -10,7 +10,7 @@ namespace FishingVisionAssistant.Capture;
 /// <summary>
 /// Захватывает выбранное окно или монитор через Windows.Graphics.Capture и хранит только свежий кадр.
 /// </summary>
-public sealed class WindowsGraphicsCaptureFrameSource : IFrameSource
+public sealed class WindowsGraphicsCaptureFrameSource : IFrameSource, IPausableFrameSource
 {
     private readonly GraphicsCaptureItem _item;
     private readonly IDirect3DDevice _device;
@@ -20,6 +20,7 @@ public sealed class WindowsGraphicsCaptureFrameSource : IFrameSource
     private readonly object _sync = new();
     private Task? _copyTask;
     private long _sequenceNumber;
+    private bool _isPaused;
     private bool _isDisposed;
 
     public WindowsGraphicsCaptureFrameSource(GraphicsCaptureItem item)
@@ -59,6 +60,38 @@ public sealed class WindowsGraphicsCaptureFrameSource : IFrameSource
         _frames.Reader.ReadAllAsync(cancellationToken);
 
     /// <inheritdoc />
+    public bool IsPaused
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _isPaused;
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public void Pause()
+    {
+        lock (_sync)
+        {
+            ObjectDisposedException.ThrowIf(_isDisposed, this);
+            _isPaused = true;
+        }
+    }
+
+    /// <inheritdoc />
+    public void Resume()
+    {
+        lock (_sync)
+        {
+            ObjectDisposedException.ThrowIf(_isDisposed, this);
+            _isPaused = false;
+        }
+    }
+
+    /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
         Task? copyTask;
@@ -92,6 +125,13 @@ public sealed class WindowsGraphicsCaptureFrameSource : IFrameSource
         {
             if (_isDisposed || _copyTask is { IsCompleted: false })
             {
+                return;
+            }
+
+            if (_isPaused)
+            {
+                // Освобождаем surface, чтобы frame pool продолжил выдавать события после Resume.
+                using var ignoredFrame = sender.TryGetNextFrame();
                 return;
             }
 

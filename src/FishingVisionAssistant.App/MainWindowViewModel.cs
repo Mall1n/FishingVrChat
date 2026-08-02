@@ -37,6 +37,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private double _timelineMaximum = 1;
     private double _timelineValue;
     private bool _isVideoLoaded;
+    private bool _isLiveCaptureActive;
     private bool _isBusy;
     private bool _isPlaying;
     private BitmapSource? _sourcePreview;
@@ -236,6 +237,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             if (SetField(ref _isVideoLoaded, value))
             {
                 OnPropertyChanged(nameof(CanNavigate));
+                OnPropertyChanged(nameof(CanUseTimelineButtons));
             }
         }
     }
@@ -253,6 +255,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     }
 
     public bool CanNavigate => IsVideoLoaded;
+
+    public bool CanUseTimelineButtons => IsVideoLoaded || _isLiveCaptureActive;
 
     public string PlayPauseText => _isPlaying ? "⏸" : "▶";
 
@@ -322,6 +326,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     {
         ResetVideoState();
         ResetDetectionResult();
+        _isLiveCaptureActive = true;
+        OnPropertyChanged(nameof(CanUseTimelineButtons));
         SourcePath = descriptor.DisplayName;
         SourceStatus = "Live capture запущен · обрабатывается только самый свежий кадр";
         PreviewTitle = "Ожидание первого live-кадра…";
@@ -332,20 +338,37 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Обновляет live-метрики на каждом inference, а тяжёлые preview только на diagnostic-кадрах.
+    /// Обновляет live-метрики на каждом inference, а разрешённые preview только на diagnostic-кадрах.
     /// </summary>
-    public void ApplyLiveFrame(LiveFrameAnalysis analysis, PerformanceSnapshot performance)
+    public void ApplyLiveFrame(
+        LiveFrameAnalysis analysis,
+        PerformanceSnapshot performance,
+        LivePreviewSettings previewSettings)
     {
+        ArgumentNullException.ThrowIfNull(previewSettings);
         var result = analysis.PanelDetection;
         PreviewTitle = string.Empty;
         PreviewHint = string.Empty;
         PanelReason = result.Reason;
         PanelConfidence = result.Confidence;
-        if (analysis.IncludesDiagnostics && result.OverlayPng.Length > 0 && result.MaskPng.Length > 0)
+        if (analysis.IncludesDiagnostics)
         {
-            SourcePreview = DecodeImage(result.OverlayPng);
-            MaskPreview = DecodeImage(result.MaskPng);
-            RectifiedPreview = result.RectifiedPanelPng is null ? null : DecodeImage(result.RectifiedPanelPng);
+            if (previewSettings.UpdateSourcePreview && result.OverlayPng.Length > 0)
+            {
+                SourcePreview = DecodeImage(result.OverlayPng);
+            }
+
+            if (previewSettings.UpdateOnnxDiagnosticPreview && result.MaskPng.Length > 0)
+            {
+                MaskPreview = DecodeImage(result.MaskPng);
+            }
+
+            if (previewSettings.UpdateRectifiedPreview)
+            {
+                RectifiedPreview = result.RectifiedPanelPng is null
+                    ? null
+                    : DecodeImage(result.RectifiedPanelPng);
+            }
         }
 
         PreprocessLatency = FormatLatency(result.Timings?.Preprocess);
@@ -368,8 +391,22 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     public void EndLiveCapture(string status)
     {
+        _isLiveCaptureActive = false;
+        OnPropertyChanged(nameof(CanUseTimelineButtons));
         SourceStatus = status;
         CacheStatus = "live остановлен";
+    }
+
+    /// <summary>
+    /// Отмечает live session как приостановленную или продолженную, сохраняя последние preview и метрики.
+    /// </summary>
+    public void SetLiveCapturePaused(bool isPaused)
+    {
+        SourceStatus = isPaused
+            ? "Live capture приостановлен · последний результат сохранён"
+            : "Live capture продолжен · ожидается свежий кадр";
+        CacheStatus = isPaused ? "live · пауза" : "live · продолжен";
+        VideoPosition = isPaused ? "LIVE · пауза" : "LIVE · latest-frame";
     }
 
     public void BeginFrameAnalysis(long frameIndex)

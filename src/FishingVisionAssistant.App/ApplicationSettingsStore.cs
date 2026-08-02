@@ -95,5 +95,13 @@ public sealed class ApplicationSettings
 
     public OnnxExecutionProvider OnnxExecutionProvider { get; init; } = OnnxExecutionProvider.Auto;
 
+    public bool IsSourcePreviewEnabled { get; init; } = true;
+
+    public bool IsRectifiedPreviewEnabled { get; init; } = true;
+
+    public bool IsOnnxDiagnosticPreviewEnabled { get; init; } = true;
+
+    public int LivePreviewRefreshEveryNFrames { get; init; } = 4;
+
     public int PlaybackSpeedIndex { get; init; } = 2;
 }

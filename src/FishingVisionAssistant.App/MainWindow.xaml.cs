@@ -54,6 +54,7 @@ public partial class MainWindow : Window
     private string? _onnxModelPath;
     private OnnxPanelDetector? _onnxPanelDetector;
     private OnnxExecutionProvider _onnxExecutionProvider = OnnxExecutionProvider.Auto;
+    private LivePreviewSettings _livePreviewSettings = LivePreviewSettings.Default;
     private double _onnxMinimumConfidence = DefaultOnnxMinimumConfidence;
     private double _onnxMinimumAspectRatio = DefaultOnnxMinimumAspectRatio;
     private int _annotationPreviewVersion;
@@ -193,11 +194,16 @@ public partial class MainWindow : Window
             DisposeVideoSession();
             ResetCurrentDetection();
             _currentImagePath = null;
-            var session = new LiveAnalysisSession(new WindowsGraphicsCaptureFrameSource(item), detector);
+            var session = new LiveAnalysisSession(
+                new WindowsGraphicsCaptureFrameSource(item),
+                detector,
+                GetEffectiveLivePreviewSettings());
             _liveSession = session;
             _performanceStatistics = new PerformanceStatistics();
             _viewModel.BeginLiveCapture(session.Descriptor);
             LiveCaptureButton.Content = "Остановить Live capture";
+            PauseLiveCaptureButton.Content = "Приостановить";
+            PauseLiveCaptureButton.IsEnabled = true;
             UpdateAnnotationControls();
             session.Start(
                 analysis => Dispatcher.BeginInvoke(() => ApplyLiveFrame(session, analysis)),
@@ -209,6 +215,27 @@ public partial class MainWindow : Window
             await StopLiveCaptureAsync();
             ShowAnalysisError(exception);
         }
+    }
+
+    private void PauseLiveCapture_Click(object sender, RoutedEventArgs e)
+    {
+        var session = _liveSession;
+        if (session is null)
+        {
+            return;
+        }
+
+        if (session.IsPaused)
+        {
+            session.Resume();
+            PauseLiveCaptureButton.Content = "Приостановить";
+            _viewModel.SetLiveCapturePaused(false);
+            return;
+        }
+
+        session.Pause();
+        PauseLiveCaptureButton.Content = "Продолжить";
+        _viewModel.SetLiveCapturePaused(true);
     }
 
     private async Task AnalyzeImageAsync(string path)
@@ -505,13 +532,16 @@ public partial class MainWindow : Window
 
     private void ApplyLiveFrame(LiveAnalysisSession session, LiveFrameAnalysis analysis)
     {
-        if (!ReferenceEquals(session, _liveSession))
+        if (!ReferenceEquals(session, _liveSession) || session.IsPaused)
         {
             return;
         }
 
         _performanceStatistics.Add(analysis.EndToEndTime);
-        _viewModel.ApplyLiveFrame(analysis, _performanceStatistics.GetSnapshot());
+        _viewModel.ApplyLiveFrame(
+            analysis,
+            _performanceStatistics.GetSnapshot(),
+            GetEffectiveLivePreviewSettings());
     }
 
     private async void HandleLiveCaptureError(LiveAnalysisSession session, Exception exception)
@@ -545,6 +575,8 @@ public partial class MainWindow : Window
 
         _liveSession = null;
         LiveCaptureButton.Content = "Запустить Live capture";
+        PauseLiveCaptureButton.Content = "Приостановить";
+        PauseLiveCaptureButton.IsEnabled = false;
         await session.DisposeAsync();
         _viewModel.EndLiveCapture(status);
         UpdateAnnotationControls();
@@ -604,6 +636,17 @@ public partial class MainWindow : Window
                 : OnnxExecutionProvider.Auto;
             SelectOnnxExecutionProvider(_onnxExecutionProvider);
             UpdateOnnxGateSummary();
+            _livePreviewSettings = new LivePreviewSettings(
+                settings.IsSourcePreviewEnabled,
+                settings.IsRectifiedPreviewEnabled,
+                settings.IsOnnxDiagnosticPreviewEnabled,
+                NormalizeLivePreviewInterval(settings.LivePreviewRefreshEveryNFrames));
+            PauseAllPreviewsCheckBox.IsChecked = false;
+            SourcePreviewCheckBox.IsChecked = _livePreviewSettings.UpdateSourcePreview;
+            RectifiedPreviewCheckBox.IsChecked = _livePreviewSettings.UpdateRectifiedPreview;
+            OnnxDiagnosticPreviewCheckBox.IsChecked = _livePreviewSettings.UpdateOnnxDiagnosticPreview;
+            SelectLivePreviewInterval(_livePreviewSettings.RefreshEveryNFrames);
+            UpdateLivePreviewSettingsSummary();
 
             var split = Enum.IsDefined(typeof(DatasetSplit), settings.DatasetSplit)
                 ? settings.DatasetSplit
@@ -631,6 +674,10 @@ public partial class MainWindow : Window
         OnnxMinimumConfidence = _onnxMinimumConfidence,
         OnnxMinimumAspectRatio = _onnxMinimumAspectRatio,
         OnnxExecutionProvider = _onnxExecutionProvider,
+        IsSourcePreviewEnabled = _livePreviewSettings.UpdateSourcePreview,
+        IsRectifiedPreviewEnabled = _livePreviewSettings.UpdateRectifiedPreview,
+        IsOnnxDiagnosticPreviewEnabled = _livePreviewSettings.UpdateOnnxDiagnosticPreview,
+        LivePreviewRefreshEveryNFrames = _livePreviewSettings.RefreshEveryNFrames,
         PlaybackSpeedIndex = _playbackSpeedIndex
     };
 
@@ -732,6 +779,109 @@ public partial class MainWindow : Window
             await ActivateOnnxDetectorAsync(reanalyzeCurrentSource: true);
         }
     }
+
+    private void LivePreviewSettings_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded || _isRestoringSettings)
+        {
+            return;
+        }
+
+        ApplyLivePreviewSettingsFromControls();
+    }
+
+    private void LivePreviewInterval_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded || _isRestoringSettings)
+        {
+            return;
+        }
+
+        ApplyLivePreviewSettingsFromControls();
+    }
+
+    private void ApplyLivePreviewSettingsFromControls()
+    {
+        _livePreviewSettings = new LivePreviewSettings(
+            SourcePreviewCheckBox.IsChecked == true,
+            RectifiedPreviewCheckBox.IsChecked == true,
+            OnnxDiagnosticPreviewCheckBox.IsChecked == true,
+            GetSelectedLivePreviewInterval());
+        _liveSession?.UpdatePreviewSettings(GetEffectiveLivePreviewSettings());
+        UpdateLivePreviewSettingsSummary();
+    }
+
+    private LivePreviewSettings GetEffectiveLivePreviewSettings()
+    {
+        return PauseAllPreviewsCheckBox.IsChecked == true
+            ? _livePreviewSettings with
+            {
+                UpdateSourcePreview = false,
+                UpdateRectifiedPreview = false,
+                UpdateOnnxDiagnosticPreview = false
+            }
+            : _livePreviewSettings;
+    }
+
+    private void UpdateLivePreviewSettingsSummary()
+    {
+        if (PauseAllPreviewsCheckBox.IsChecked == true)
+        {
+            PreviewSettingsSummaryText.Text = "Все preview заморожены на последних изображениях.";
+            return;
+        }
+
+        var activePreviews = new List<string>(3);
+        if (_livePreviewSettings.UpdateSourcePreview)
+        {
+            activePreviews.Add("исходный кадр");
+        }
+
+        if (_livePreviewSettings.UpdateRectifiedPreview)
+        {
+            activePreviews.Add("шкала");
+        }
+
+        if (_livePreviewSettings.UpdateOnnxDiagnosticPreview)
+        {
+            activePreviews.Add("ONNX");
+        }
+
+        var activeText = activePreviews.Count == 0
+            ? "Все preview заморожены"
+            : $"Обновляются: {string.Join(", ", activePreviews)}";
+        PreviewSettingsSummaryText.Text =
+            $"{activeText} · {FormatLivePreviewInterval(_livePreviewSettings.RefreshEveryNFrames)}.";
+    }
+
+    private void SelectLivePreviewInterval(int frameInterval)
+    {
+        var item = LivePreviewIntervalComboBox.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(candidate => candidate.Tag?.ToString() == frameInterval.ToString());
+        LivePreviewIntervalComboBox.SelectedItem = item ?? LivePreviewIntervalComboBox.Items[2];
+    }
+
+    private int GetSelectedLivePreviewInterval()
+    {
+        return LivePreviewIntervalComboBox.SelectedItem is ComboBoxItem item &&
+               int.TryParse(item.Tag?.ToString(), out var interval)
+            ? NormalizeLivePreviewInterval(interval)
+            : LivePreviewSettings.Default.RefreshEveryNFrames;
+    }
+
+    private static int NormalizeLivePreviewInterval(int interval) => interval is 1 or 2 or 4 or 8
+        ? interval
+        : LivePreviewSettings.Default.RefreshEveryNFrames;
+
+    private static string FormatLivePreviewInterval(int interval) => interval switch
+    {
+        1 => "каждый обработанный кадр",
+        2 => "каждый 2-й обработанный кадр",
+        4 => "каждый 4-й обработанный кадр",
+        8 => "каждый 8-й обработанный кадр",
+        _ => $"каждый {interval}-й обработанный кадр"
+    };
 
     private async Task ActivateOnnxDetectorAsync(bool reanalyzeCurrentSource)
     {

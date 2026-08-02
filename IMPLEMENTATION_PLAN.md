@@ -270,6 +270,6 @@ Reinforcement learning для MVP не используется: механик�
 
 Offline Frame Inspector, ONNX detector и полный workflow OBB-разметки реализованы. Приложение умеет создавать Train/Validation/Test, сохранять positive и negative samples, восстанавливать ground truth на кадре, исправлять, перезаписывать, переносить и удалять его без автоматического перехода на следующий кадр.
 
-Первый dataset, baseline, ONNX detector через Windows ML self-contained и Windows.Graphics.Capture live MVP готовы. Live pipeline обрабатывает каждый доступный detector кадр, отбрасывает устаревшие необработанные кадры и формирует diagnostic PNG отдельно от fast path.
+Первый dataset, baseline, ONNX detector через Windows ML self-contained и Windows.Graphics.Capture live MVP готовы. Live pipeline обрабатывает каждый доступный detector кадр, отбрасывает устаревшие необработанные кадры и формирует diagnostic PNG отдельно от fast path. Capture session можно приостановить без закрытия источника; три preview замораживаются независимо, а их общий diagnostic cadence выбирается как каждый 1-й, 2-й, 4-й или 8-й обработанный кадр.
 
 Следующий шаг — проверить через приложение режим Auto, фактически выбранный backend, стабильность live capture и реальные `Capture + очередь`, `Inference`, `Postprocess` и end-to-end latency. После подтверждения DirectML можно реализовывать `GameElementDetector`, tracking и настройку периодичности полного OBB inference. До появления tracking запуск ONNX «раз в N кадров» не используется, иначе между inference нечем надёжно обновлять положение рамки.
