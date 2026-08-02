@@ -72,6 +72,7 @@ public partial class MainWindow : Window
     private TrainingLogWindow? _trainingLogWindow;
     private string? _trainingLogPath;
     private string? _trainingResultDirectory;
+    private string? _latestTrainingWeightsPath;
 
     public MainWindow()
     {
@@ -1196,6 +1197,58 @@ public partial class MainWindow : Window
     private async void StartTraining_Click(object sender, RoutedEventArgs e) =>
         await RunMlCommandAsync(isTraining: true);
 
+    private async void ExportOnnx_Click(object sender, RoutedEventArgs e)
+    {
+        if (_mlTrainingCancellation is not null)
+        {
+            return;
+        }
+
+        var mlPaths = FindMlPaths();
+        if (mlPaths is null)
+        {
+            TrainingStatusText.Text = "Не найдены .venv или ml\\fishing_obb.py рядом с проектом.";
+            return;
+        }
+
+        var weightsPath = _latestTrainingWeightsPath;
+        if (string.IsNullOrWhiteSpace(weightsPath) || !File.Exists(weightsPath))
+        {
+            var weightsDialog = new OpenFileDialog
+            {
+                Title = "Выберите checkpoint для экспорта",
+                Filter = "PyTorch checkpoint|*.pt",
+                InitialDirectory = Path.Combine(mlPaths.RepositoryRoot, "artifacts", "ml")
+            };
+            if (weightsDialog.ShowDialog(this) != true)
+            {
+                return;
+            }
+
+            weightsPath = weightsDialog.FileName;
+        }
+
+        var modelsDirectory = Path.Combine(mlPaths.RepositoryRoot, "artifacts", "models");
+        Directory.CreateDirectory(modelsDirectory);
+        var runDirectory = Directory.GetParent(weightsPath)?.Parent;
+        var suggestedName = $"{runDirectory?.Name ?? Path.GetFileNameWithoutExtension(weightsPath)}.onnx";
+        var outputDialog = new SaveFileDialog
+        {
+            Title = "Сохранить ONNX-модель",
+            Filter = "ONNX model|*.onnx",
+            DefaultExt = ".onnx",
+            AddExtension = true,
+            InitialDirectory = modelsDirectory,
+            FileName = suggestedName
+        };
+        if (outputDialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        await RunOnnxExportAsync(mlPaths, weightsPath, outputDialog.FileName);
+    }
+
     private void StopTraining_Click(object sender, RoutedEventArgs e)
     {
         if (_mlTrainingCancellation is null)
@@ -1252,7 +1305,7 @@ public partial class MainWindow : Window
         }
 
         _mlTrainingCancellation = new CancellationTokenSource();
-        CreateTrainingLog(mlPaths.RepositoryRoot, isTraining, runName);
+        CreateTrainingLog(mlPaths.RepositoryRoot, isTraining ? "train" : "check", runName);
         UpdateTrainingControls(isRunning: true);
         TrainingLogTextBox.Clear();
         AppendTrainingLog($"> {Path.GetFileName(mlPaths.PythonPath)} ml\\fishing_obb.py {string.Join(' ', arguments)}");
@@ -1269,6 +1322,9 @@ public partial class MainWindow : Window
             var action = isTraining ? "Обучение" : "Проверка dataset";
             OpenTrainingResultFolderButton.IsEnabled =
                 exitCode == 0 && _trainingResultDirectory is not null && Directory.Exists(_trainingResultDirectory);
+            _latestTrainingWeightsPath = exitCode == 0 && _trainingResultDirectory is not null
+                ? Path.Combine(_trainingResultDirectory, "weights", "best.pt")
+                : null;
             TrainingStatusText.Text = exitCode == 0
                 ? $"{action} завершено."
                 : $"{action} завершено с кодом {exitCode}. Проверьте журнал.";
@@ -1277,6 +1333,52 @@ public partial class MainWindow : Window
         {
             AppendTrainingLog(exception.ToString());
             TrainingStatusText.Text = $"Не удалось запустить ML-процесс: {exception.Message}";
+        }
+        finally
+        {
+            _mlTrainingCancellation?.Dispose();
+            _mlTrainingCancellation = null;
+            UpdateTrainingControls(isRunning: false);
+        }
+    }
+
+    private async Task RunOnnxExportAsync(MlPaths mlPaths, string weightsPath, string outputPath)
+    {
+        var arguments = new List<string>
+        {
+            "export",
+            "--weights", weightsPath,
+            "--output", outputPath,
+            "--imgsz", "1024",
+            "--device", GetSelectedTrainingDevice()
+        };
+
+        _mlTrainingCancellation = new CancellationTokenSource();
+        CreateTrainingLog(mlPaths.RepositoryRoot, "export", runName: null);
+        UpdateTrainingControls(isRunning: true);
+        TrainingLogTextBox.Clear();
+        AppendTrainingLog($"> {Path.GetFileName(mlPaths.PythonPath)} ml\\fishing_obb.py {string.Join(' ', arguments)}");
+        TrainingStatusText.Text = "Экспортирую ONNX-модель…";
+        try
+        {
+            var exitCode = await _mlTrainingRunner.RunAsync(
+                mlPaths.PythonPath,
+                mlPaths.ScriptPath,
+                mlPaths.RepositoryRoot,
+                arguments,
+                AppendTrainingLog,
+                _mlTrainingCancellation.Token);
+            _trainingResultDirectory = Path.GetDirectoryName(outputPath);
+            OpenTrainingResultFolderButton.IsEnabled =
+                exitCode == 0 && _trainingResultDirectory is not null && Directory.Exists(_trainingResultDirectory);
+            TrainingStatusText.Text = exitCode == 0
+                ? $"ONNX сохранена: {outputPath}"
+                : $"Экспорт ONNX завершён с кодом {exitCode}. Проверьте журнал.";
+        }
+        catch (Exception exception)
+        {
+            AppendTrainingLog(exception.ToString());
+            TrainingStatusText.Text = $"Не удалось экспортировать ONNX: {exception.Message}";
         }
         finally
         {
@@ -1328,6 +1430,7 @@ public partial class MainWindow : Window
         TrainingBatchTextBox.IsEnabled = !isRunning;
         TrainingModelComboBox.IsEnabled = !isRunning;
         TrainingDeviceComboBox.IsEnabled = !isRunning;
+        ExportOnnxButton.IsEnabled = !isRunning;
         OpenTrainingLogButton.IsEnabled = !string.IsNullOrWhiteSpace(_trainingLogPath) && File.Exists(_trainingLogPath);
         if (isRunning)
         {
@@ -1402,12 +1505,12 @@ public partial class MainWindow : Window
         }
     }
 
-    private void CreateTrainingLog(string repositoryRoot, bool isTraining, string? runName)
+    private void CreateTrainingLog(string repositoryRoot, string operation, string? runName)
     {
         var logsDirectory = Path.Combine(repositoryRoot, "artifacts", "ml", "logs");
         Directory.CreateDirectory(logsDirectory);
         var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-        _trainingLogPath = Path.Combine(logsDirectory, $"{(isTraining ? "train" : "check")}-{timestamp}.log");
+        _trainingLogPath = Path.Combine(logsDirectory, $"{operation}-{timestamp}.log");
         File.WriteAllText(_trainingLogPath, string.Empty, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         _trainingResultDirectory = runName is null
             ? null
