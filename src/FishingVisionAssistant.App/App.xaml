@@ -228,10 +228,10 @@
                 <Setter TargetName="ReadableButtonBorder" Property="Background" Value="#1F2932" />
               </MultiTrigger>
               <Trigger Property="IsEnabled" Value="False">
-                <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}" />
+                <Setter Property="Foreground" Value="#BAC5CE" />
                 <Setter Property="Cursor" Value="Arrow" />
-                <Setter TargetName="ReadableButtonBorder" Property="Background" Value="#26313B" />
-                <Setter TargetName="ReadableButtonBorder" Property="BorderBrush" Value="#3A4652" />
+                <Setter TargetName="ReadableButtonBorder" Property="Background" Value="#202830" />
+                <Setter TargetName="ReadableButtonBorder" Property="BorderBrush" Value="#303B45" />
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
