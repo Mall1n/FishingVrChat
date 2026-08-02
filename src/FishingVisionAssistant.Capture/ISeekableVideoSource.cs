@@ -12,6 +12,7 @@ public interface ISeekableVideoSource : IDisposable
 
     /// <summary>
     /// Декодирует кадр по нулевому индексу, выполняя seek только при необходимости.
+    /// Возвращает null, если кадр недоступен для декодирования.
     /// </summary>
-    VideoFrame ReadFrame(long frameIndex);
+    VideoFrame? ReadFrame(long frameIndex);
 }

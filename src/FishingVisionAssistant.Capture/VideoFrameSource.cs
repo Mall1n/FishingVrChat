@@ -53,7 +53,7 @@ public sealed class VideoFrameSource : ISeekableVideoSource
     public VideoMetadata Metadata { get; }
 
     /// <inheritdoc />
-    public VideoFrame ReadFrame(long frameIndex)
+    public VideoFrame? ReadFrame(long frameIndex)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentOutOfRangeException.ThrowIfNegative(frameIndex);
@@ -75,7 +75,7 @@ public sealed class VideoFrameSource : ISeekableVideoSource
             using var decoded = new Mat();
             if (!_capture.Read(decoded) || decoded.Empty())
             {
-                throw new EndOfStreamException($"Не удалось декодировать кадр {frameIndex}.");
+                return null;
             }
 
             using var bgr = NormalizeToBgr(decoded);

@@ -20,7 +20,7 @@ public sealed class VideoAnalysisSession : IDisposable
 
     public VideoMetadata Metadata => _videoSource.Metadata;
 
-    public VideoFrameAnalysis AnalyzeFrame(long frameIndex)
+    public VideoFrameAnalysis? AnalyzeFrame(long frameIndex)
     {
         if (_cache.TryGet(frameIndex, out var cached))
         {
@@ -28,6 +28,11 @@ public sealed class VideoAnalysisSession : IDisposable
         }
 
         var frame = _videoSource.ReadFrame(frameIndex);
+        if (frame is null)
+        {
+            return null;
+        }
+
         var detection = _panelDetector.DetectBgr24(
             frame.Bgr24Pixels,
             frame.Width,
@@ -49,8 +54,13 @@ public sealed class VideoAnalysisSession : IDisposable
         _cache.Clear();
     }
 
-    public byte[] ExportFramePng(long frameIndex) =>
-        FramePngEncoder.Encode(_videoSource.ReadFrame(frameIndex));
+    public byte[] ExportFramePng(long frameIndex)
+    {
+        var frame = _videoSource.ReadFrame(frameIndex);
+        return frame is null
+            ? throw new InvalidOperationException($"Не удалось подготовить кадр {frameIndex + 1} для разметки.")
+            : FramePngEncoder.Encode(frame);
+    }
 
     public void Dispose() => _videoSource.Dispose();
 }

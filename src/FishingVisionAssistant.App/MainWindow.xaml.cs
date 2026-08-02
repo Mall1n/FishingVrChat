@@ -219,6 +219,14 @@ public partial class MainWindow : Window
                 return;
             }
 
+            if (analysis is null)
+            {
+                _currentFrameIndex = frameIndex;
+                _lastVideoFrameIndex = frameIndex;
+                _viewModel.ApplyFrameDecodeFailure(session.Metadata, frameIndex);
+                return;
+            }
+
             if (!analysis.IsFromCache)
             {
                 _performanceStatistics.Add(analysis.ProcessingTime);

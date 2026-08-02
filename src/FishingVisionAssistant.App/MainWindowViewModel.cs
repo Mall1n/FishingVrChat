@@ -341,6 +341,18 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         PanelReason = $"Анализ кадра {frameIndex + 1:N0}";
     }
 
+    public void ApplyFrameDecodeFailure(VideoMetadata metadata, long frameIndex)
+    {
+        ResetDetectionResult();
+        TimelineValue = frameIndex;
+        FramePosition = $"{frameIndex + 1:N0} / {metadata.FrameCount:N0}";
+        VideoPosition = $"{FormatTime(TimeSpan.FromSeconds(frameIndex / metadata.FramesPerSecond))} / {FormatTime(metadata.Duration)}";
+        SourceStatus = $"Не удалось декодировать кадр {frameIndex + 1:N0}";
+        PreviewTitle = "Кадр недоступен";
+        PreviewHint = "Видео не содержит декодируемых данных для выбранной позиции.";
+        PanelReason = "Декодирование кадра не удалось";
+        IsBusy = false;
+    }
     public void ApplyVideoFrame(
         VideoMetadata metadata,
         VideoFrameAnalysis analysis,
