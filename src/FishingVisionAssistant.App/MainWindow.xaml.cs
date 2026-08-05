@@ -1335,7 +1335,7 @@ public partial class MainWindow : Window
         _mlTrainingCancellation = new CancellationTokenSource();
         CreateTrainingLog(mlPaths.RepositoryRoot, isTraining ? "train" : "check", runName);
         UpdateTrainingControls(isRunning: true);
-        TrainingLogTextBox.Clear();
+        TrainingLastLogText.Text = "Подготавливаю запуск ML-процесса…";
         AppendTrainingLog($"> {Path.GetFileName(mlPaths.PythonPath)} ml\\fishing_obb.py {string.Join(' ', arguments)}");
         TrainingStatusText.Text = isTraining ? "Идёт обучение модели…" : "Проверяю dataset…";
         try
@@ -1384,7 +1384,7 @@ public partial class MainWindow : Window
         _mlTrainingCancellation = new CancellationTokenSource();
         CreateTrainingLog(mlPaths.RepositoryRoot, "export", runName: null);
         UpdateTrainingControls(isRunning: true);
-        TrainingLogTextBox.Clear();
+        TrainingLastLogText.Text = "Подготавливаю экспорт ONNX…";
         AppendTrainingLog($"> {Path.GetFileName(mlPaths.PythonPath)} ml\\fishing_obb.py {string.Join(' ', arguments)}");
         TrainingStatusText.Text = "Экспортирую ONNX-модель…";
         try
@@ -1500,14 +1500,7 @@ public partial class MainWindow : Window
 
     private void AppendTrainingLogToUi(string line)
     {
-        const int maximumLogLength = 12_000;
-        if (TrainingLogTextBox.Text.Length > maximumLogLength)
-        {
-            TrainingLogTextBox.Text = TrainingLogTextBox.Text[^maximumLogLength..];
-        }
-
-        TrainingLogTextBox.AppendText(line + Environment.NewLine);
-        TrainingLogTextBox.ScrollToEnd();
+        TrainingLastLogText.Text = line;
         _trainingLogWindow?.AppendLine(line);
     }
 

@@ -702,20 +702,21 @@
                          Foreground="{StaticResource SecondaryTextBrush}"
                          Text="Готово к проверке dataset или обучению. Размер входа: 1024 × 1024."
                          TextWrapping="Wrap" />
-              <TextBox x:Name="TrainingLogTextBox"
-                       Height="76"
-                       Margin="0,10,0,0"
-                       Padding="8"
-                       Background="#161D24"
-                       BorderBrush="{StaticResource PanelBorderBrush}"
-                       BorderThickness="1"
-                       FontFamily="Consolas"
-                       FontSize="11"
-                       Foreground="{StaticResource PrimaryTextBrush}"
-                       IsReadOnly="True"
-                       TextWrapping="NoWrap"
-                       VerticalScrollBarVisibility="Auto"
-                       HorizontalScrollBarVisibility="Auto" />
+              <Border Margin="0,10,0,0"
+                      Padding="8"
+                      Background="#161D24"
+                      BorderBrush="{StaticResource PanelBorderBrush}"
+                      BorderThickness="1"
+                      CornerRadius="4"
+                      ToolTip="Последняя строка ML-процесса. Полный журнал открывается отдельной кнопкой.">
+                <TextBlock x:Name="TrainingLastLogText"
+                           FontFamily="Consolas"
+                           FontSize="11"
+                           Foreground="{StaticResource PrimaryTextBrush}"
+                           Text="Журнал появится после запуска операции."
+                           TextTrimming="CharacterEllipsis"
+                           TextWrapping="NoWrap" />
+              </Border>
             </StackPanel>
           </Border>
 
