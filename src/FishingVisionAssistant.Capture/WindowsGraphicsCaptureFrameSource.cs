@@ -19,7 +19,6 @@ public sealed class WindowsGraphicsCaptureFrameSource : IFrameSource, IPausableF
     private readonly object _sync = new();
     private Task? _copyTask;
     private long _sequenceNumber;
-    private int _hasQueuedFrame;
     private bool _isPaused;
     private bool _isDisposed;
 
@@ -35,7 +34,7 @@ public sealed class WindowsGraphicsCaptureFrameSource : IFrameSource, IPausableF
         _device = Direct3DDeviceFactory.Create();
         _frames = Channel.CreateBounded<CapturedFrame>(new BoundedChannelOptions(1)
         {
-            FullMode = BoundedChannelFullMode.Wait,
+            FullMode = BoundedChannelFullMode.DropOldest,
             SingleReader = true,
             SingleWriter = true,
             AllowSynchronousContinuations = false
@@ -56,14 +55,8 @@ public sealed class WindowsGraphicsCaptureFrameSource : IFrameSource, IPausableF
     public FrameSourceDescriptor Descriptor { get; }
 
     /// <inheritdoc />
-    public async IAsyncEnumerable<CapturedFrame> ReadFramesAsync(CancellationToken cancellationToken = default)
-    {
-        await foreach (var frame in _frames.Reader.ReadAllAsync(cancellationToken))
-        {
-            Interlocked.Exchange(ref _hasQueuedFrame, 0);
-            yield return frame;
-        }
-    }
+    public IAsyncEnumerable<CapturedFrame> ReadFramesAsync(CancellationToken cancellationToken = default) =>
+        _frames.Reader.ReadAllAsync(cancellationToken);
 
     /// <inheritdoc />
     public bool IsPaused
@@ -164,13 +157,6 @@ public sealed class WindowsGraphicsCaptureFrameSource : IFrameSource, IPausableF
                 return Task.CompletedTask;
             }
 
-            // Пока detector занят, один CPU-кадр уже ожидает обработки. Новый surface освобождается
-            // без staging readback: иначе он будет вытеснен из latest-frame queue до inference.
-            if (Interlocked.CompareExchange(ref _hasQueuedFrame, 1, 0) != 0)
-            {
-                return Task.CompletedTask;
-            }
-
             var sourceToken = Interlocked.Increment(ref _sequenceNumber);
             var requiredBytes = checked(contentSize.Width * contentSize.Height * 4);
             var pixels = GC.AllocateUninitializedArray<byte>(requiredBytes);
@@ -179,7 +165,7 @@ public sealed class WindowsGraphicsCaptureFrameSource : IFrameSource, IPausableF
                 frame.Surface,
                 pixels);
             var readyTimestamp = DateTimeOffset.UtcNow;
-            if (!_frames.Writer.TryWrite(new CapturedFrame(
+            _frames.Writer.TryWrite(new CapturedFrame(
                 sourceToken,
                 captureTimestamp,
                 Stopwatch.GetElapsedTime(copyStartedAt),
@@ -188,19 +174,14 @@ public sealed class WindowsGraphicsCaptureFrameSource : IFrameSource, IPausableF
                 readback.Height,
                 readback.Stride,
                 FramePixelFormat.Bgra32,
-                pixels)))
-            {
-                Interlocked.Exchange(ref _hasQueuedFrame, 0);
-            }
+                pixels));
         }
         catch (Exception exception) when (!_isDisposed)
         {
-            Interlocked.Exchange(ref _hasQueuedFrame, 0);
             _frames.Writer.TryComplete(exception);
         }
         catch (Exception) when (_isDisposed)
         {
-            Interlocked.Exchange(ref _hasQueuedFrame, 0);
         }
 
         return Task.CompletedTask;

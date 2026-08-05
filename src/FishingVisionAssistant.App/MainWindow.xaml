@@ -341,17 +341,15 @@
                   BorderThickness="1"
                   CornerRadius="8">
             <StackPanel>
-              <DockPanel LastChildFill="False">
-                <TextBlock FontSize="17" FontWeight="SemiBold" Text="ONNX detector" />
-                <TextBlock x:Name="OnnxModelNameHeaderText"
-                           HorizontalAlignment="Right"
-                           VerticalAlignment="Center"
-                           FontSize="11"
-                           Foreground="{StaticResource SecondaryTextBrush}"
-                           Text="модель не выбрана"
-                           TextTrimming="CharacterEllipsis"
-                           ToolTip="Имя текущего ONNX-файла" />
-              </DockPanel>
+              <TextBlock FontSize="17" FontWeight="SemiBold" Text="ONNX detector" />
+              <TextBlock x:Name="OnnxModelNameHeaderText"
+                         Margin="0,4,0,0"
+                         FontSize="13"
+                         FontWeight="Bold"
+                         Foreground="{StaticResource PrimaryTextBrush}"
+                         Text="модель не выбрана"
+                         TextTrimming="CharacterEllipsis"
+                         ToolTip="Полный путь к текущему ONNX-файлу" />
 
               <Button x:Name="ChooseOnnxModelButton"
                       Margin="0,12,0,0"
@@ -377,13 +375,6 @@
                       Style="{StaticResource AnnotationButtonStyle}"
                       Click="ConfigureOnnxGate_Click"
                       Content="Настройки Gate" />
-              <TextBlock x:Name="OnnxModelPathText"
-                         Margin="0,6,0,0"
-                         FontSize="11"
-                         Foreground="{StaticResource SecondaryTextBrush}"
-                         Text="Модель не выбрана"
-                         TextTrimming="CharacterEllipsis"
-                         ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
               <TextBlock x:Name="OnnxDetectorStatusText"
                          Margin="0,8,0,0"
                          Foreground="{StaticResource SecondaryTextBrush}"

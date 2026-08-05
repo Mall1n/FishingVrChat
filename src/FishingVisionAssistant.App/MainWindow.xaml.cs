@@ -850,10 +850,10 @@ public partial class MainWindow : Window
 
     private void UpdateOnnxModelPathText()
     {
-        OnnxModelPathText.Text = _onnxModelPath ?? "Модель не выбрана";
         OnnxModelNameHeaderText.Text = string.IsNullOrWhiteSpace(_onnxModelPath)
             ? "модель не выбрана"
             : Path.GetFileName(_onnxModelPath);
+        OnnxModelNameHeaderText.ToolTip = _onnxModelPath ?? "Модель не выбрана";
     }
 
     private async void ConfigureOnnxGate_Click(object sender, RoutedEventArgs e)
