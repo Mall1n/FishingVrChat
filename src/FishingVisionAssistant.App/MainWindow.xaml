@@ -644,6 +644,22 @@
                 </ComboBox>
               </DockPanel>
 
+              <DockPanel Margin="0,10,0,0">
+                <TextBlock VerticalAlignment="Center"
+                           Text="Размер ONNX input"
+                           ToolTip="Статическое разрешение входа экспортируемой ONNX-модели. Меньший размер ускоряет inference, но требует отдельной проверки качества." />
+                <ComboBox x:Name="OnnxExportImageSizeComboBox"
+                          Width="160"
+                          HorizontalAlignment="Right"
+                          SelectedIndex="0"
+                          Style="{StaticResource DarkComboBoxStyle}">
+                  <ComboBoxItem Content="1024 × 1024 · baseline" Tag="1024" />
+                  <ComboBoxItem Content="768 × 768 · эксперимент" Tag="768" />
+                  <ComboBoxItem Content="640 × 640 · эксперимент" Tag="640" />
+                  <ComboBoxItem Content="512 × 512 · эксперимент" Tag="512" />
+                </ComboBox>
+              </DockPanel>
+
               <WrapPanel Margin="0,12,0,0">
                 <Button x:Name="CheckDatasetButton"
                         Margin="0,0,8,8"

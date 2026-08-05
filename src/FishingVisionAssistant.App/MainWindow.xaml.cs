@@ -1250,10 +1250,16 @@ public partial class MainWindow : Window
             weightsPath = weightsDialog.FileName;
         }
 
+        if (!TryGetOnnxExportImageSize(out var imageSize))
+        {
+            return;
+        }
+
         var modelsDirectory = Path.Combine(mlPaths.RepositoryRoot, "artifacts", "models");
         Directory.CreateDirectory(modelsDirectory);
         var runDirectory = Directory.GetParent(weightsPath)?.Parent;
-        var suggestedName = $"{runDirectory?.Name ?? Path.GetFileNameWithoutExtension(weightsPath)}.onnx";
+        var suggestedName =
+            $"{runDirectory?.Name ?? Path.GetFileNameWithoutExtension(weightsPath)}-{imageSize}.onnx";
         var outputDialog = new SaveFileDialog
         {
             Title = "Сохранить ONNX-модель",
@@ -1268,7 +1274,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        await RunOnnxExportAsync(mlPaths, weightsPath, outputDialog.FileName);
+        await RunOnnxExportAsync(mlPaths, weightsPath, outputDialog.FileName, imageSize);
     }
 
     private void StopTraining_Click(object sender, RoutedEventArgs e)
@@ -1364,14 +1370,14 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task RunOnnxExportAsync(MlPaths mlPaths, string weightsPath, string outputPath)
+    private async Task RunOnnxExportAsync(MlPaths mlPaths, string weightsPath, string outputPath, int imageSize)
     {
         var arguments = new List<string>
         {
             "export",
             "--weights", weightsPath,
             "--output", outputPath,
-            "--imgsz", "1024",
+            "--imgsz", imageSize.ToString(),
             "--device", GetSelectedTrainingDevice()
         };
 
@@ -1442,6 +1448,20 @@ public partial class MainWindow : Window
     private string GetSelectedTrainingModel() =>
         (TrainingModelComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "yolo26n-obb.pt";
 
+    private bool TryGetOnnxExportImageSize(out int imageSize)
+    {
+        imageSize = 0;
+        if (OnnxExportImageSizeComboBox.SelectedItem is not ComboBoxItem item ||
+            !int.TryParse(item.Tag?.ToString(), out imageSize) ||
+            imageSize is < 320 or > 2048 || imageSize % 32 != 0)
+        {
+            TrainingStatusText.Text = "Выберите корректный размер ONNX input, кратный 32.";
+            return false;
+        }
+
+        return true;
+    }
+
     private void UpdateTrainingControls(bool isRunning)
     {
         CheckDatasetButton.IsEnabled = !isRunning;
@@ -1452,6 +1472,7 @@ public partial class MainWindow : Window
         TrainingBatchTextBox.IsEnabled = !isRunning;
         TrainingModelComboBox.IsEnabled = !isRunning;
         TrainingDeviceComboBox.IsEnabled = !isRunning;
+        OnnxExportImageSizeComboBox.IsEnabled = !isRunning;
         ExportOnnxButton.IsEnabled = !isRunning;
         OpenTrainingLogButton.IsEnabled = !string.IsNullOrWhiteSpace(_trainingLogPath) && File.Exists(_trainingLogPath);
         if (isRunning)

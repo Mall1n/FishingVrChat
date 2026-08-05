@@ -77,10 +77,11 @@ Test не участвует в выборе checkpoint или threshold. Ком
 ```powershell
 .\.venv\Scripts\python.exe ml\fishing_obb.py export `
   --weights "artifacts\ml\fishing-panel-obb\weights\best.pt" `
-  --output "artifacts\models\fishing-panel-obb.onnx"
+  --output "artifacts\models\fishing-panel-obb-1024.onnx" `
+  --imgsz 1024
 ```
 
-Экспорт использует фиксированный вход `1 × 3 × 1024 × 1024`, FP32 и ONNX opset 17. Это упрощает первый ONNX Runtime inference в .NET. Оптимизацию размера и FP16 следует делать только после сравнения точности и latency базового варианта.
+Экспорт создаёт ONNX с фиксированным квадратным input выбранного `--imgsz`, FP32 и ONNX opset 17. В приложении доступны `1024`, `768`, `640` и `512`; имя файла по умолчанию включает размер. Для первого сравнения используй `1024`, затем экспортируй тот же checkpoint с `768` или `640` и сравни Test, smoke-набор, median и p95. Переобучение для первого такого эксперимента не требуется.
 
 ## 6. Проверка модели в приложении
 
