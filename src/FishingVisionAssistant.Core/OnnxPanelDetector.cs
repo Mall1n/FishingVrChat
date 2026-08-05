@@ -356,11 +356,9 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
         var resizedWidth = Math.Max(1, (int)Math.Round(source.Width * transform.Scale));
         var resizedHeight = Math.Max(1, (int)Math.Round(source.Height * transform.Scale));
 
-        using var resized = new Mat();
-        Cv2.Resize(source, resized, new Size(resizedWidth, resizedHeight), interpolation: InterpolationFlags.Linear);
         var letterbox = new Mat(new Size(_inputWidth, _inputHeight), MatType.CV_8UC3, new Scalar(114, 114, 114));
         using var target = new Mat(letterbox, new Rect(transform.Left, transform.Top, resizedWidth, resizedHeight));
-        resized.CopyTo(target);
+        Cv2.Resize(source, target, target.Size(), interpolation: InterpolationFlags.Linear);
         return letterbox;
     }
 
