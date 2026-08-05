@@ -747,7 +747,7 @@ public partial class MainWindow : Window
             _onnxModelPath = string.IsNullOrWhiteSpace(settings.OnnxModelPath)
                 ? FindDefaultOnnxModelPath()
                 : settings.OnnxModelPath;
-            OnnxModelPathText.Text = _onnxModelPath ?? "Модель не выбрана";
+            UpdateOnnxModelPathText();
             _onnxMinimumConfidence = Math.Clamp(settings.OnnxMinimumConfidence, 0.05, 0.95);
             _onnxMinimumAspectRatio = Math.Clamp(settings.OnnxMinimumAspectRatio, 1, 30);
             _onnxExecutionProvider = Enum.IsDefined(settings.OnnxExecutionProvider)
@@ -844,8 +844,16 @@ public partial class MainWindow : Window
         }
 
         _onnxModelPath = Path.GetFullPath(dialog.FileName);
-        OnnxModelPathText.Text = _onnxModelPath;
+        UpdateOnnxModelPathText();
         await ActivateOnnxDetectorAsync(reanalyzeCurrentSource: true);
+    }
+
+    private void UpdateOnnxModelPathText()
+    {
+        OnnxModelPathText.Text = _onnxModelPath ?? "Модель не выбрана";
+        OnnxModelNameHeaderText.Text = string.IsNullOrWhiteSpace(_onnxModelPath)
+            ? "модель не выбрана"
+            : Path.GetFileName(_onnxModelPath);
     }
 
     private async void ConfigureOnnxGate_Click(object sender, RoutedEventArgs e)
@@ -1033,7 +1041,7 @@ public partial class MainWindow : Window
             await ReplaceActiveDetectorAsync(detector, reanalyzeCurrentSource);
             previous?.Dispose();
             OnnxDetectorStatusText.Text = detector.FallbackReason is null
-                ? $"Модель загружена · Windows ML self-contained · {detector.ProviderName} · 1024 × 1024."
+                ? $"Модель загружена · Windows ML self-contained · {detector.ProviderName} · {detector.InputSize}."
                 : "Модель загружена · Windows ML self-contained · CPU · " +
                   "Auto fallback: DirectML недоступен.";
             OnnxDetectorStatusText.ToolTip = detector.FallbackReason;

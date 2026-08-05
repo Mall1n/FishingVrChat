@@ -28,9 +28,11 @@
 
 ### 1. Throttle до GPU → CPU readback
 
-Статус: запланировано.
+Статус: реализовано, ожидает замера через приложение.
 
 Отбрасывать ненужные кадры в `FrameArrived` до staging `CopyResource → Map → memcpy`, но освобождать `Direct3D11CaptureFrame` сразу. Цель — не выполнять дорогой readback кадров, которые всё равно будут вытеснены bounded latest-frame queue.
+
+Реализация: queue стала `Wait` с ёмкостью один кадр. Пока в ней есть CPU buffer, следующий `Direct3D11CaptureFrame` извлекается и освобождается без staging readback. После начала detector analysis buffer снимается с очереди, и следующий доступный кадр снова может быть скопирован.
 
 Критерий успеха: уменьшается нагрузка capture и не ухудшаются median/p95 latency и свежесть результата; detector продолжает получать самый новый доступный кадр.
 

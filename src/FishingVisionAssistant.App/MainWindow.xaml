@@ -341,7 +341,17 @@
                   BorderThickness="1"
                   CornerRadius="8">
             <StackPanel>
-              <TextBlock FontSize="17" FontWeight="SemiBold" Text="ONNX detector" />
+              <DockPanel LastChildFill="False">
+                <TextBlock FontSize="17" FontWeight="SemiBold" Text="ONNX detector" />
+                <TextBlock x:Name="OnnxModelNameHeaderText"
+                           HorizontalAlignment="Right"
+                           VerticalAlignment="Center"
+                           FontSize="11"
+                           Foreground="{StaticResource SecondaryTextBrush}"
+                           Text="модель не выбрана"
+                           TextTrimming="CharacterEllipsis"
+                           ToolTip="Имя текущего ONNX-файла" />
+              </DockPanel>
 
               <Button x:Name="ChooseOnnxModelButton"
                       Margin="0,12,0,0"

@@ -48,6 +48,11 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
     };
 
     /// <summary>
+    /// Возвращает статический размер входа текущей ONNX-модели.
+    /// </summary>
+    public string InputSize => $"{_inputWidth} × {_inputHeight}";
+
+    /// <summary>
     /// Возвращает причину перехода Auto с DirectML на CPU или null, если fallback не потребовался.
     /// </summary>
     public string? FallbackReason { get; }
