@@ -82,4 +82,3 @@ public partial class TrainingLogWindow : Window
         }
     }
 }
-}
