@@ -106,11 +106,6 @@ public sealed class ApplicationSettings
     /// </summary>
     public bool IsAllPreviewsPaused { get; init; }
 
-    /// <summary>
-    /// Сохраняет включённое усреднение метрик Frame Inspector за одну секунду.
-    /// </summary>
-    public bool IsFrameInspectorSmoothingEnabled { get; init; }
-
     public int LivePreviewRefreshEveryNFrames { get; init; } = 4;
 
     public int PlaybackSpeedIndex { get; init; } = 2;

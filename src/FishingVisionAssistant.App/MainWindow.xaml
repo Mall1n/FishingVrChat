@@ -146,12 +146,6 @@
                   CornerRadius="8">
             <StackPanel>
               <TextBlock FontSize="17" FontWeight="SemiBold" Text="Frame Inspector" />
-              <CheckBox x:Name="FrameInspectorSmoothingCheckBox"
-                        Margin="0,10,0,0"
-                        Checked="FrameInspectorSmoothing_Changed"
-                        Content="Сглаживание · 1 с"
-                        ToolTip="Показывает среднее значение latency и стадий pipeline за последнюю секунду. Сам pipeline не замедляется."
-                        Unchecked="FrameInspectorSmoothing_Changed" />
               <DockPanel Margin="0,12,0,0">
                 <TextBlock Text="Кадр" />
                 <TextBlock HorizontalAlignment="Right" Text="{Binding FramePosition}" />
@@ -165,9 +159,13 @@
                 <TextBlock HorizontalAlignment="Right" Text="{Binding PipelineFps}" />
               </DockPanel>
               <DockPanel Margin="0,8,0,0">
-                <TextBlock Text="Текущая latency" />
+                <TextBlock Text="Последний кадр" />
                 <TextBlock HorizontalAlignment="Right" Text="{Binding PipelineLatency}" />
               </DockPanel>
+              <TextBlock Margin="0,12,0,0"
+                         FontSize="11"
+                         Foreground="{StaticResource SecondaryTextBrush}"
+                         Text="Стадии · median за 5 с" />
               <DockPanel Margin="0,8,0,0"
                          ToolTip="Offline: чтение кадра из видео. Live: копирование capture surface с GPU в CPU byte buffer, включая преобразование формата.">
                 <TextBlock Text="{Binding InputLatencyLabel}" />
@@ -751,7 +749,7 @@
                    Margin="0,0,0,8"
                    HorizontalAlignment="Center"
                    Foreground="{StaticResource SecondaryTextBrush}"
-                   Text="OBB: Enter принять · E исправить · M вручную · N рамки нет · Delete удалить · ←/→ 1 с · Shift+←/→ кадр" />
+                   Text="OBB: Enter принять · E исправить · M вручную · Shift+drag точнее · N рамки нет · Delete удалить · ←/→ 1 с · Shift+←/→ кадр" />
 
         <StackPanel Grid.Row="1" Orientation="Horizontal">
           <Button Click="PreviousSecond_Click"

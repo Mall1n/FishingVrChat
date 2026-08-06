@@ -20,6 +20,9 @@ public sealed class ObbAnnotationOverlay
     private readonly Image _image;
     private readonly List<Point> _corners = [];
     private int? _draggedCornerIndex;
+    private Point? _dragPointerAnchor;
+    private Point? _dragCornerAnchor;
+    private bool _isPrecisionDragging;
 
     public ObbAnnotationOverlay(Image image, Canvas canvas)
     {
@@ -94,6 +97,9 @@ public sealed class ObbAnnotationOverlay
         Mode = ObbOverlayMode.None;
         IsEditing = false;
         _draggedCornerIndex = null;
+        _dragPointerAnchor = null;
+        _dragCornerAnchor = null;
+        _isPrecisionDragging = false;
         _canvas.IsHitTestVisible = false;
         Render();
         Changed?.Invoke(this, EventArgs.Empty);
@@ -110,18 +116,14 @@ public sealed class ObbAnnotationOverlay
         }
 
         var canvasPoint = e.GetPosition(_canvas);
-        var nearestCorner = FindNearestCorner(canvasPoint);
-        if (nearestCorner is not null)
-        {
-            _draggedCornerIndex = nearestCorner;
-            _canvas.CaptureMouse();
-            e.Handled = true;
-            return;
-        }
 
-        if (Mode == ObbOverlayMode.Manual && _corners.Count < 4 && TryCanvasToSource(canvasPoint, out var sourcePoint))
+        // При ручной разметке первые четыре клика всегда создают новые вершины,
+        // даже если следующая точка находится рядом с уже поставленной.
+        if (Mode == ObbOverlayMode.Manual &&
+            _corners.Count < 4 &&
+            TryCanvasToSource(canvasPoint, out var newCorner))
         {
-            _corners.Add(sourcePoint);
+            _corners.Add(newCorner);
             if (_corners.Count == 4)
             {
                 OrderCornersClockwise();
@@ -130,17 +132,49 @@ public sealed class ObbAnnotationOverlay
             Render();
             Changed?.Invoke(this, EventArgs.Empty);
             e.Handled = true;
+            return;
+        }
+
+        var nearestCorner = FindNearestCorner(canvasPoint);
+        if (nearestCorner is not null)
+        {
+            _draggedCornerIndex = nearestCorner;
+            _dragPointerAnchor = TryCanvasToSource(canvasPoint, out var pointerSource)
+                ? pointerSource
+                : _corners[nearestCorner.Value];
+            _dragCornerAnchor = _corners[nearestCorner.Value];
+            _isPrecisionDragging = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
+            _canvas.CaptureMouse();
+            e.Handled = true;
+            return;
         }
     }
 
     private void Canvas_MouseMove(object sender, MouseEventArgs e)
     {
-        if (_draggedCornerIndex is null || !TryCanvasToSource(e.GetPosition(_canvas), out var sourcePoint))
+        if (_draggedCornerIndex is null ||
+            _dragPointerAnchor is null ||
+            _dragCornerAnchor is null ||
+            !TryCanvasToSource(e.GetPosition(_canvas), out var sourcePoint))
         {
             return;
         }
 
-        _corners[_draggedCornerIndex.Value] = sourcePoint;
+        var isPrecisionDragging = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
+        if (isPrecisionDragging != _isPrecisionDragging)
+        {
+            // При смене режима чувствительности закрепляем текущую вершину,
+            // чтобы она не прыгала из-за уже пройденного курсором расстояния.
+            _dragPointerAnchor = sourcePoint;
+            _dragCornerAnchor = _corners[_draggedCornerIndex.Value];
+            _isPrecisionDragging = isPrecisionDragging;
+        }
+
+        var sensitivity = _isPrecisionDragging ? 0.1 : 1.0;
+        var pointerDelta = sourcePoint - _dragPointerAnchor.Value;
+        _corners[_draggedCornerIndex.Value] = ClampToSourceBounds(new Point(
+            _dragCornerAnchor.Value.X + pointerDelta.X * sensitivity,
+            _dragCornerAnchor.Value.Y + pointerDelta.Y * sensitivity));
         Render();
         Changed?.Invoke(this, EventArgs.Empty);
     }
@@ -153,6 +187,9 @@ public sealed class ObbAnnotationOverlay
         }
 
         _draggedCornerIndex = null;
+        _dragPointerAnchor = null;
+        _dragCornerAnchor = null;
+        _isPrecisionDragging = false;
         _canvas.ReleaseMouseCapture();
         OrderCornersClockwise();
         Render();
@@ -269,6 +306,18 @@ public sealed class ObbAnnotationOverlay
         }
 
         return new Point(sourcePoint.X * scale + offsetX, sourcePoint.Y * scale + offsetY);
+    }
+
+    private Point ClampToSourceBounds(Point sourcePoint)
+    {
+        if (_image.Source is not BitmapSource bitmap)
+        {
+            return sourcePoint;
+        }
+
+        return new Point(
+            Math.Clamp(sourcePoint.X, 0, bitmap.PixelWidth - 1),
+            Math.Clamp(sourcePoint.Y, 0, bitmap.PixelHeight - 1));
     }
 
     private bool TryGetTransform(
