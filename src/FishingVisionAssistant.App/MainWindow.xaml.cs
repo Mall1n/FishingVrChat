@@ -44,6 +44,7 @@ public partial class MainWindow : Window
     private readonly object _liveUiSync = new();
     private readonly object _trainingLogSync = new();
     private readonly object _trainingLogUiSync = new();
+    private readonly SemaphoreSlim _onnxActivationGate = new(1, 1);
     private readonly Queue<TrainingLogLine> _pendingTrainingLogLines = new();
     private ObbAnnotationOverlay? _annotationOverlay;
     private LiveDetectionOverlay? _liveDetectionOverlay;
@@ -51,6 +52,9 @@ public partial class MainWindow : Window
     private LiveFrameAnalysis? _pendingLiveUiFrame;
     private LiveInspectorSnapshot? _pendingLiveInspector;
     private bool _isLiveUiUpdateScheduled;
+    private bool _isLiveCaptureStopping;
+    private bool _isOnnxTransitionActive;
+    private Task? _liveStopTask;
     private long _lastLiveUiUpdateTimestamp;
     private PerformanceStatistics _performanceStatistics = new();
     private LiveInspectorStatistics _liveInspectorStatistics = new();
@@ -185,6 +189,11 @@ public partial class MainWindow : Window
 
     private async void LiveCapture_Click(object sender, RoutedEventArgs e)
     {
+        if (_isLiveCaptureStopping || _isOnnxTransitionActive)
+        {
+            return;
+        }
+
         if (_liveSession is not null)
         {
             await StopLiveCaptureAsync();
@@ -696,21 +705,50 @@ public partial class MainWindow : Window
 
     private async Task StopLiveCaptureAsync(string status = "Live capture остановлен")
     {
+        if (_liveStopTask is not null)
+        {
+            await _liveStopTask;
+            return;
+        }
+
         var session = _liveSession;
         if (session is null)
         {
             return;
         }
 
+        _liveStopTask = StopLiveCaptureCoreAsync(session, status);
+        try
+        {
+            await _liveStopTask;
+        }
+        finally
+        {
+            _liveStopTask = null;
+        }
+    }
+
+    private async Task StopLiveCaptureCoreAsync(LiveAnalysisSession session, string status)
+    {
         _liveSession = null;
+        _isLiveCaptureStopping = true;
         ClearPendingLiveFrames(session);
         LiveCaptureButton.Content = "Запустить Live capture";
+        LiveCaptureButton.IsEnabled = false;
         PauseLiveCaptureButton.Content = "▶";
         PauseLiveCaptureButton.IsEnabled = false;
         PauseLiveCaptureButton.ToolTip = "Live capture не запущен";
-        await session.DisposeAsync();
-        _viewModel.EndLiveCapture(status);
-        UpdateAnnotationControls();
+        try
+        {
+            await session.DisposeAsync();
+            _viewModel.EndLiveCapture(status);
+            UpdateAnnotationControls();
+        }
+        finally
+        {
+            _isLiveCaptureStopping = false;
+            LiveCaptureButton.IsEnabled = !_isOnnxTransitionActive;
+        }
     }
 
     private void ShowAnalysisError(Exception exception)
@@ -846,6 +884,11 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (IsOnnxActivationInProgress())
+        {
+            return;
+        }
+
         var dialog = new OpenFileDialog
         {
             Title = "Выберите YOLO OBB ONNX-модель",
@@ -875,6 +918,11 @@ public partial class MainWindow : Window
         if (_isFrameTransitionActive)
         {
             OnnxDetectorStatusText.Text = "Дождитесь завершения анализа текущего кадра.";
+            return;
+        }
+
+        if (IsOnnxActivationInProgress())
+        {
             return;
         }
 
@@ -913,6 +961,12 @@ public partial class MainWindow : Window
         {
             SelectOnnxExecutionProvider(_onnxExecutionProvider);
             OnnxDetectorStatusText.Text = "Дождитесь завершения анализа текущего кадра.";
+            return;
+        }
+
+        if (IsOnnxActivationInProgress())
+        {
+            SelectOnnxExecutionProvider(_onnxExecutionProvider);
             return;
         }
 
@@ -1035,12 +1089,25 @@ public partial class MainWindow : Window
             return;
         }
 
-        StopPlayback();
-        SetOnnxControlsEnabled(false);
-        OnnxDetectorStatusText.ToolTip = null;
-        OnnxDetectorStatusText.Text = "Загрузка модели через Windows ML self-contained…";
+        await _onnxActivationGate.WaitAsync();
+        SetOnnxTransitionControlsEnabled(false);
         try
         {
+            StopPlayback();
+            OnnxDetectorStatusText.ToolTip = null;
+            OnnxDetectorStatusText.Text = "Останавливаю live и освобождаю предыдущую ONNX-модель…";
+
+            await StopLiveCaptureAsync("Live capture остановлен после смены detector");
+            var previous = _onnxPanelDetector;
+            _onnxPanelDetector = null;
+            if (ReferenceEquals(_panelDetector, previous))
+            {
+                _panelDetector = null;
+            }
+
+            previous?.Dispose();
+
+            OnnxDetectorStatusText.Text = "Загрузка модели через Windows ML self-contained…";
             var modelPath = _onnxModelPath;
             var detector = await Task.Run(() => new OnnxPanelDetector(new OnnxPanelDetectorOptions
             {
@@ -1050,10 +1117,8 @@ public partial class MainWindow : Window
                 ExecutionProvider = _onnxExecutionProvider
             }));
 
-            var previous = _onnxPanelDetector;
             _onnxPanelDetector = detector;
             await ReplaceActiveDetectorAsync(detector, reanalyzeCurrentSource);
-            previous?.Dispose();
             OnnxDetectorStatusText.Text = detector.FallbackReason is null
                 ? $"Модель загружена · Windows ML self-contained · {detector.ProviderName} · {detector.InputSize}."
                 : "Модель загружена · Windows ML self-contained · CPU · " +
@@ -1074,7 +1139,8 @@ public partial class MainWindow : Window
         }
         finally
         {
-            SetOnnxControlsEnabled(true);
+            SetOnnxTransitionControlsEnabled(true);
+            _onnxActivationGate.Release();
         }
     }
 
@@ -1100,11 +1166,15 @@ public partial class MainWindow : Window
         }
     }
 
-    private void SetOnnxControlsEnabled(bool isEnabled)
+    private bool IsOnnxActivationInProgress() => _onnxActivationGate.CurrentCount == 0;
+
+    private void SetOnnxTransitionControlsEnabled(bool isEnabled)
     {
+        _isOnnxTransitionActive = !isEnabled;
         ChooseOnnxModelButton.IsEnabled = isEnabled;
         OnnxBackendComboBox.IsEnabled = isEnabled;
         ConfigureOnnxGateButton.IsEnabled = isEnabled;
+        LiveCaptureButton.IsEnabled = isEnabled && !_isLiveCaptureStopping;
     }
 
     private void UpdateOnnxGateSummary()

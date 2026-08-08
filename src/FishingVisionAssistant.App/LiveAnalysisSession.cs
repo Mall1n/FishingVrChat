@@ -114,20 +114,27 @@ public sealed class LiveAnalysisSession : IAsyncDisposable
         }
 
         _isDisposed = true;
-        await _cancellation.CancelAsync();
-        if (_processingTask is not null)
+        _cancellation.Cancel();
+        try
         {
-            try
-            {
-                await _processingTask;
-            }
-            catch (OperationCanceledException)
-            {
-            }
+            // Сначала останавливаем capture source: это завершает channel и callbacks захвата.
+            await _frameSource.DisposeAsync();
         }
+        finally
+        {
+            if (_processingTask is not null)
+            {
+                try
+                {
+                    await _processingTask;
+                }
+                catch (OperationCanceledException)
+                {
+                }
+            }
 
-        await _frameSource.DisposeAsync();
-        _cancellation.Dispose();
+            _cancellation.Dispose();
+        }
     }
 
     private async Task ProcessFramesAsync(

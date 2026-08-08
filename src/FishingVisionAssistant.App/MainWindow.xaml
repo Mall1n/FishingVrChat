@@ -36,6 +36,7 @@
                 Click="LiveCapture_Click"
                 Content="Запустить Live capture"
                 IsEnabled="True"
+                Style="{StaticResource ReadableDisabledButtonStyle}"
                 ToolTip="Выбрать окно VRChat или монитор через системный picker" />
         <Button x:Name="PauseLiveCaptureButton"
                 Width="48"
