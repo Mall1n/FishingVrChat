@@ -19,6 +19,7 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
 
     private readonly OnnxPanelDetectorOptions _options;
     private readonly InferenceSession _session;
+    private readonly object _sessionSync = new();
     private readonly OnnxExecutionProvider _activeExecutionProvider;
     private readonly string _inputName;
     private readonly string _outputName;
@@ -46,6 +47,11 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
         OnnxExecutionProvider.DirectMl => "DirectML",
         _ => "CPU"
     };
+
+    /// <summary>
+    /// Возвращает статический размер входа текущей ONNX-модели.
+    /// </summary>
+    public string InputSize => $"{_inputWidth} × {_inputHeight}";
 
     /// <summary>
     /// Возвращает причину перехода Auto с DirectML на CPU или null, если fallback не потребовался.
@@ -121,16 +127,32 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
-        if (_isDisposed)
+        lock (_sessionSync)
         {
-            return;
-        }
+            if (_isDisposed)
+            {
+                return;
+            }
 
-        _session.Dispose();
-        _isDisposed = true;
+            _isDisposed = true;
+            _session.Dispose();
+        }
     }
 
     private PanelDetectionResult Detect(
+        Mat source,
+        Stopwatch stopwatch,
+        PanelPreviewOutputs previewOutputs,
+        TimeSpan colorConversionTime)
+    {
+        lock (_sessionSync)
+        {
+            ObjectDisposedException.ThrowIf(_isDisposed, this);
+            return DetectCore(source, stopwatch, previewOutputs, colorConversionTime);
+        }
+    }
+
+    private PanelDetectionResult DetectCore(
         Mat source,
         Stopwatch stopwatch,
         PanelPreviewOutputs previewOutputs,
@@ -351,11 +373,9 @@ public sealed class OnnxPanelDetector : IPanelDetector, IDisposable
         var resizedWidth = Math.Max(1, (int)Math.Round(source.Width * transform.Scale));
         var resizedHeight = Math.Max(1, (int)Math.Round(source.Height * transform.Scale));
 
-        using var resized = new Mat();
-        Cv2.Resize(source, resized, new Size(resizedWidth, resizedHeight), interpolation: InterpolationFlags.Linear);
         var letterbox = new Mat(new Size(_inputWidth, _inputHeight), MatType.CV_8UC3, new Scalar(114, 114, 114));
         using var target = new Mat(letterbox, new Rect(transform.Left, transform.Top, resizedWidth, resizedHeight));
-        resized.CopyTo(target);
+        Cv2.Resize(source, target, target.Size(), interpolation: InterpolationFlags.Linear);
         return letterbox;
     }
 

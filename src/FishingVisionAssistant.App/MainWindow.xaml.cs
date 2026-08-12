@@ -22,29 +22,42 @@ namespace FishingVisionAssistant.App;
 public partial class MainWindow : Window
 {
     private static readonly double[] PlaybackSpeeds = [0.25, 0.5, 1, 1.5, 2];
+    private static readonly TimeSpan FrameInspectorUpdateInterval = TimeSpan.FromMilliseconds(100);
+    private const int MaximumTrainingLogLinesPerUiUpdate = 200;
     private const double DefaultOnnxMinimumConfidence = 0.5;
     private const double DefaultOnnxMinimumAspectRatio = 10;
 
     private IPanelDetector? _panelDetector;
-    private readonly DispatcherTimer _annotationPreviewTimer = new(DispatcherPriority.Background)
+    private readonly DispatcherTimer _annotationPreviewTimer = new(DispatcherPriority.Render)
     {
-        Interval = TimeSpan.FromMilliseconds(80)
+        Interval = TimeSpan.FromMilliseconds(25)
     };
     private readonly DispatcherTimer _playbackTimer = new(DispatcherPriority.Render);
+    private readonly DispatcherTimer _trainingLogUiTimer = new(DispatcherPriority.Background)
+    {
+        Interval = TimeSpan.FromMilliseconds(100)
+    };
     private readonly ApplicationSettingsStore _settingsStore = new();
     private readonly ObbDatasetWriter _datasetWriter = new();
     private readonly MlTrainingRunner _mlTrainingRunner = new();
     private readonly MainWindowViewModel _viewModel = new();
     private readonly object _liveUiSync = new();
     private readonly object _trainingLogSync = new();
+    private readonly object _trainingLogUiSync = new();
+    private readonly SemaphoreSlim _onnxActivationGate = new(1, 1);
+    private readonly Queue<TrainingLogLine> _pendingTrainingLogLines = new();
     private ObbAnnotationOverlay? _annotationOverlay;
     private LiveDetectionOverlay? _liveDetectionOverlay;
     private LiveAnalysisSession? _pendingLiveUiSession;
     private LiveFrameAnalysis? _pendingLiveUiFrame;
-    private PerformanceSnapshot? _pendingLivePerformance;
+    private LiveInspectorSnapshot? _pendingLiveInspector;
     private bool _isLiveUiUpdateScheduled;
+    private bool _isLiveCaptureStopping;
+    private bool _isOnnxTransitionActive;
+    private Task? _liveStopTask;
+    private long _lastLiveUiUpdateTimestamp;
     private PerformanceStatistics _performanceStatistics = new();
-    private readonly FrameInspectorSmoother _frameInspectorSmoother = new();
+    private LiveInspectorStatistics _liveInspectorStatistics = new();
     private VideoAnalysisSession? _videoSession;
     private LiveAnalysisSession? _liveSession;
     private PanelDetectionResult? _currentDetection;
@@ -72,6 +85,7 @@ public partial class MainWindow : Window
     private int _annotationPreviewVersion;
     private CancellationTokenSource? _mlTrainingCancellation;
     private TrainingLogWindow? _trainingLogWindow;
+    private TrainingLogLine? _pendingTrainingProgressLine;
     private string? _trainingLogPath;
     private string? _trainingResultDirectory;
     private string? _latestTrainingWeightsPath;
@@ -86,6 +100,7 @@ public partial class MainWindow : Window
         UpdateAnnotationControls();
         _annotationPreviewTimer.Tick += AnnotationPreviewTimer_Tick;
         _playbackTimer.Tick += PlaybackTimer_Tick;
+        _trainingLogUiTimer.Tick += TrainingLogUiTimer_Tick;
         Loaded += MainWindow_Loaded;
         Closed += MainWindow_Closed;
     }
@@ -174,6 +189,11 @@ public partial class MainWindow : Window
 
     private async void LiveCapture_Click(object sender, RoutedEventArgs e)
     {
+        if (_isLiveCaptureStopping || _isOnnxTransitionActive)
+        {
+            return;
+        }
+
         if (_liveSession is not null)
         {
             await StopLiveCaptureAsync();
@@ -219,7 +239,8 @@ public partial class MainWindow : Window
                 livePreviewSettings);
             _liveSession = session;
             _performanceStatistics = new PerformanceStatistics();
-            _frameInspectorSmoother.Clear();
+            _liveInspectorStatistics = new LiveInspectorStatistics();
+            _lastLiveUiUpdateTimestamp = 0;
             _viewModel.BeginLiveCapture(session.Descriptor);
             LiveCaptureButton.Content = "Остановить Live capture";
             PauseLiveCaptureButton.Content = "⏸";
@@ -561,7 +582,8 @@ public partial class MainWindow : Window
     private void ApplyLiveFrame(
         LiveAnalysisSession session,
         LiveFrameAnalysis analysis,
-        PerformanceSnapshot performance)
+        LiveInspectorSnapshot inspector,
+        bool updateInspector)
     {
         if (!ReferenceEquals(session, _liveSession) || session.IsPaused)
         {
@@ -569,13 +591,11 @@ public partial class MainWindow : Window
         }
 
         var previewSettings = GetEffectiveLivePreviewSettings();
-        var displayedAnalysis = FrameInspectorSmoothingCheckBox.IsChecked == true
-            ? _frameInspectorSmoother.Add(analysis)
-            : analysis;
         _viewModel.ApplyLiveFrame(
-            displayedAnalysis,
-            performance,
-            previewSettings);
+            analysis,
+            inspector,
+            previewSettings,
+            updateInspector);
         if (analysis.SourcePreviewFrame is not null && previewSettings.UpdateSourcePreview)
         {
             if (analysis.PanelDetection.IsDetected)
@@ -599,10 +619,10 @@ public partial class MainWindow : Window
                 return;
             }
 
-            _performanceStatistics.Add(analysis.EndToEndTime);
+            var inspector = _liveInspectorStatistics.Add(analysis);
             _pendingLiveUiSession = session;
             _pendingLiveUiFrame = analysis;
-            _pendingLivePerformance = _performanceStatistics.GetSnapshot();
+            _pendingLiveInspector = inspector;
             if (!_isLiveUiUpdateScheduled)
             {
                 _isLiveUiUpdateScheduled = true;
@@ -620,21 +640,29 @@ public partial class MainWindow : Window
     {
         LiveAnalysisSession? session;
         LiveFrameAnalysis? analysis;
-        PerformanceSnapshot? performance;
+        LiveInspectorSnapshot? inspector;
+        var updateInspector = false;
         lock (_liveUiSync)
         {
             session = _pendingLiveUiSession;
             analysis = _pendingLiveUiFrame;
-            performance = _pendingLivePerformance;
+            inspector = _pendingLiveInspector;
             _pendingLiveUiSession = null;
             _pendingLiveUiFrame = null;
-            _pendingLivePerformance = null;
+            _pendingLiveInspector = null;
             _isLiveUiUpdateScheduled = false;
+            var now = Stopwatch.GetTimestamp();
+            updateInspector = _lastLiveUiUpdateTimestamp == 0 ||
+                Stopwatch.GetElapsedTime(_lastLiveUiUpdateTimestamp, now) >= FrameInspectorUpdateInterval;
+            if (updateInspector)
+            {
+                _lastLiveUiUpdateTimestamp = now;
+            }
         }
 
-        if (session is not null && analysis is not null && performance is not null)
+        if (session is not null && analysis is not null && inspector is not null)
         {
-            ApplyLiveFrame(session, analysis, performance);
+            ApplyLiveFrame(session, analysis, inspector, updateInspector);
         }
     }
 
@@ -649,13 +677,9 @@ public partial class MainWindow : Window
 
             _pendingLiveUiSession = null;
             _pendingLiveUiFrame = null;
-            _pendingLivePerformance = null;
+            _pendingLiveInspector = null;
+            _lastLiveUiUpdateTimestamp = 0;
         }
-    }
-
-    private void FrameInspectorSmoothing_Changed(object sender, RoutedEventArgs e)
-    {
-        _frameInspectorSmoother.Clear();
     }
 
     private async void HandleLiveCaptureError(LiveAnalysisSession session, Exception exception)
@@ -681,21 +705,50 @@ public partial class MainWindow : Window
 
     private async Task StopLiveCaptureAsync(string status = "Live capture остановлен")
     {
+        if (_liveStopTask is not null)
+        {
+            await _liveStopTask;
+            return;
+        }
+
         var session = _liveSession;
         if (session is null)
         {
             return;
         }
 
+        _liveStopTask = StopLiveCaptureCoreAsync(session, status);
+        try
+        {
+            await _liveStopTask;
+        }
+        finally
+        {
+            _liveStopTask = null;
+        }
+    }
+
+    private async Task StopLiveCaptureCoreAsync(LiveAnalysisSession session, string status)
+    {
         _liveSession = null;
+        _isLiveCaptureStopping = true;
         ClearPendingLiveFrames(session);
         LiveCaptureButton.Content = "Запустить Live capture";
+        LiveCaptureButton.IsEnabled = false;
         PauseLiveCaptureButton.Content = "▶";
         PauseLiveCaptureButton.IsEnabled = false;
         PauseLiveCaptureButton.ToolTip = "Live capture не запущен";
-        await session.DisposeAsync();
-        _viewModel.EndLiveCapture(status);
-        UpdateAnnotationControls();
+        try
+        {
+            await session.DisposeAsync();
+            _viewModel.EndLiveCapture(status);
+            UpdateAnnotationControls();
+        }
+        finally
+        {
+            _isLiveCaptureStopping = false;
+            LiveCaptureButton.IsEnabled = !_isOnnxTransitionActive;
+        }
     }
 
     private void ShowAnalysisError(Exception exception)
@@ -727,6 +780,7 @@ public partial class MainWindow : Window
         _mlTrainingCancellation = null;
         _settingsStore.Save(CaptureSettings());
         _annotationPreviewTimer.Stop();
+        _trainingLogUiTimer.Stop();
         var liveSession = _liveSession;
         _liveSession = null;
         liveSession?.DisposeAsync().AsTask().GetAwaiter().GetResult();
@@ -747,7 +801,7 @@ public partial class MainWindow : Window
             _onnxModelPath = string.IsNullOrWhiteSpace(settings.OnnxModelPath)
                 ? FindDefaultOnnxModelPath()
                 : settings.OnnxModelPath;
-            OnnxModelPathText.Text = _onnxModelPath ?? "Модель не выбрана";
+            UpdateOnnxModelPathText();
             _onnxMinimumConfidence = Math.Clamp(settings.OnnxMinimumConfidence, 0.05, 0.95);
             _onnxMinimumAspectRatio = Math.Clamp(settings.OnnxMinimumAspectRatio, 1, 30);
             _onnxExecutionProvider = Enum.IsDefined(settings.OnnxExecutionProvider)
@@ -764,7 +818,6 @@ public partial class MainWindow : Window
             SourcePreviewCheckBox.IsChecked = _livePreviewSettings.UpdateSourcePreview;
             RectifiedPreviewCheckBox.IsChecked = _livePreviewSettings.UpdateRectifiedPreview;
             OnnxDiagnosticPreviewCheckBox.IsChecked = _livePreviewSettings.UpdateOnnxDiagnosticPreview;
-            FrameInspectorSmoothingCheckBox.IsChecked = settings.IsFrameInspectorSmoothingEnabled;
             SelectLivePreviewInterval(_livePreviewSettings.RefreshEveryNFrames);
             UpdateLivePreviewSettingsSummary();
 
@@ -798,7 +851,6 @@ public partial class MainWindow : Window
         IsRectifiedPreviewEnabled = _livePreviewSettings.UpdateRectifiedPreview,
         IsOnnxDiagnosticPreviewEnabled = _livePreviewSettings.UpdateOnnxDiagnosticPreview,
         IsAllPreviewsPaused = PauseAllPreviewsCheckBox.IsChecked == true,
-        IsFrameInspectorSmoothingEnabled = FrameInspectorSmoothingCheckBox.IsChecked == true,
         LivePreviewRefreshEveryNFrames = _livePreviewSettings.RefreshEveryNFrames,
         PlaybackSpeedIndex = _playbackSpeedIndex
     };
@@ -832,6 +884,11 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (IsOnnxActivationInProgress())
+        {
+            return;
+        }
+
         var dialog = new OpenFileDialog
         {
             Title = "Выберите YOLO OBB ONNX-модель",
@@ -844,8 +901,16 @@ public partial class MainWindow : Window
         }
 
         _onnxModelPath = Path.GetFullPath(dialog.FileName);
-        OnnxModelPathText.Text = _onnxModelPath;
+        UpdateOnnxModelPathText();
         await ActivateOnnxDetectorAsync(reanalyzeCurrentSource: true);
+    }
+
+    private void UpdateOnnxModelPathText()
+    {
+        OnnxModelNameHeaderText.Text = string.IsNullOrWhiteSpace(_onnxModelPath)
+            ? "модель не выбрана"
+            : Path.GetFileName(_onnxModelPath);
+        OnnxModelNameHeaderText.ToolTip = _onnxModelPath ?? "Модель не выбрана";
     }
 
     private async void ConfigureOnnxGate_Click(object sender, RoutedEventArgs e)
@@ -853,6 +918,11 @@ public partial class MainWindow : Window
         if (_isFrameTransitionActive)
         {
             OnnxDetectorStatusText.Text = "Дождитесь завершения анализа текущего кадра.";
+            return;
+        }
+
+        if (IsOnnxActivationInProgress())
+        {
             return;
         }
 
@@ -891,6 +961,12 @@ public partial class MainWindow : Window
         {
             SelectOnnxExecutionProvider(_onnxExecutionProvider);
             OnnxDetectorStatusText.Text = "Дождитесь завершения анализа текущего кадра.";
+            return;
+        }
+
+        if (IsOnnxActivationInProgress())
+        {
+            SelectOnnxExecutionProvider(_onnxExecutionProvider);
             return;
         }
 
@@ -1013,12 +1089,25 @@ public partial class MainWindow : Window
             return;
         }
 
-        StopPlayback();
-        SetOnnxControlsEnabled(false);
-        OnnxDetectorStatusText.ToolTip = null;
-        OnnxDetectorStatusText.Text = "Загрузка модели через Windows ML self-contained…";
+        await _onnxActivationGate.WaitAsync();
+        SetOnnxTransitionControlsEnabled(false);
         try
         {
+            StopPlayback();
+            OnnxDetectorStatusText.ToolTip = null;
+            OnnxDetectorStatusText.Text = "Останавливаю live и освобождаю предыдущую ONNX-модель…";
+
+            await StopLiveCaptureAsync("Live capture остановлен после смены detector");
+            var previous = _onnxPanelDetector;
+            _onnxPanelDetector = null;
+            if (ReferenceEquals(_panelDetector, previous))
+            {
+                _panelDetector = null;
+            }
+
+            previous?.Dispose();
+
+            OnnxDetectorStatusText.Text = "Загрузка модели через Windows ML self-contained…";
             var modelPath = _onnxModelPath;
             var detector = await Task.Run(() => new OnnxPanelDetector(new OnnxPanelDetectorOptions
             {
@@ -1028,12 +1117,10 @@ public partial class MainWindow : Window
                 ExecutionProvider = _onnxExecutionProvider
             }));
 
-            var previous = _onnxPanelDetector;
             _onnxPanelDetector = detector;
             await ReplaceActiveDetectorAsync(detector, reanalyzeCurrentSource);
-            previous?.Dispose();
             OnnxDetectorStatusText.Text = detector.FallbackReason is null
-                ? $"Модель загружена · Windows ML self-contained · {detector.ProviderName} · 1024 × 1024."
+                ? $"Модель загружена · Windows ML self-contained · {detector.ProviderName} · {detector.InputSize}."
                 : "Модель загружена · Windows ML self-contained · CPU · " +
                   "Auto fallback: DirectML недоступен.";
             OnnxDetectorStatusText.ToolTip = detector.FallbackReason;
@@ -1052,7 +1139,8 @@ public partial class MainWindow : Window
         }
         finally
         {
-            SetOnnxControlsEnabled(true);
+            SetOnnxTransitionControlsEnabled(true);
+            _onnxActivationGate.Release();
         }
     }
 
@@ -1078,11 +1166,15 @@ public partial class MainWindow : Window
         }
     }
 
-    private void SetOnnxControlsEnabled(bool isEnabled)
+    private bool IsOnnxActivationInProgress() => _onnxActivationGate.CurrentCount == 0;
+
+    private void SetOnnxTransitionControlsEnabled(bool isEnabled)
     {
+        _isOnnxTransitionActive = !isEnabled;
         ChooseOnnxModelButton.IsEnabled = isEnabled;
         OnnxBackendComboBox.IsEnabled = isEnabled;
         ConfigureOnnxGateButton.IsEnabled = isEnabled;
+        LiveCaptureButton.IsEnabled = isEnabled && !_isLiveCaptureStopping;
     }
 
     private void UpdateOnnxGateSummary()
@@ -1334,6 +1426,7 @@ public partial class MainWindow : Window
 
         _mlTrainingCancellation = new CancellationTokenSource();
         CreateTrainingLog(mlPaths.RepositoryRoot, isTraining ? "train" : "check", runName);
+        StartTrainingLogUiUpdates();
         UpdateTrainingControls(isRunning: true);
         TrainingLastLogText.Text = "Подготавливаю запуск ML-процесса…";
         AppendTrainingLog($"> {Path.GetFileName(mlPaths.PythonPath)} ml\\fishing_obb.py {string.Join(' ', arguments)}");
@@ -1364,6 +1457,7 @@ public partial class MainWindow : Window
         }
         finally
         {
+            StopTrainingLogUiUpdates();
             _mlTrainingCancellation?.Dispose();
             _mlTrainingCancellation = null;
             UpdateTrainingControls(isRunning: false);
@@ -1383,6 +1477,7 @@ public partial class MainWindow : Window
 
         _mlTrainingCancellation = new CancellationTokenSource();
         CreateTrainingLog(mlPaths.RepositoryRoot, "export", runName: null);
+        StartTrainingLogUiUpdates();
         UpdateTrainingControls(isRunning: true);
         TrainingLastLogText.Text = "Подготавливаю экспорт ONNX…";
         AppendTrainingLog($"> {Path.GetFileName(mlPaths.PythonPath)} ml\\fishing_obb.py {string.Join(' ', arguments)}");
@@ -1410,6 +1505,7 @@ public partial class MainWindow : Window
         }
         finally
         {
+            StopTrainingLogUiUpdates();
             _mlTrainingCancellation?.Dispose();
             _mlTrainingCancellation = null;
             UpdateTrainingControls(isRunning: false);
@@ -1484,24 +1580,77 @@ public partial class MainWindow : Window
     private void AppendTrainingLog(string line)
     {
         WriteTrainingLogFile(line);
-        if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+        var logLine = TrainingLogLine.Create(line);
+        lock (_trainingLogUiSync)
         {
-            return;
-        }
+            if (logLine.ReplacesPreviousProgress)
+            {
+                _pendingTrainingProgressLine = logLine;
+            }
+            else
+            {
+                if (_pendingTrainingProgressLine is not null)
+                {
+                    _pendingTrainingLogLines.Enqueue(_pendingTrainingProgressLine);
+                    _pendingTrainingProgressLine = null;
+                }
 
-        if (!Dispatcher.CheckAccess())
-        {
-            _ = Dispatcher.BeginInvoke(() => AppendTrainingLogToUi(line));
-            return;
+                _pendingTrainingLogLines.Enqueue(logLine);
+            }
         }
-
-        AppendTrainingLogToUi(line);
     }
 
-    private void AppendTrainingLogToUi(string line)
+    private void StartTrainingLogUiUpdates()
     {
-        TrainingLastLogText.Text = line;
-        _trainingLogWindow?.AppendLine(line);
+        lock (_trainingLogUiSync)
+        {
+            _pendingTrainingLogLines.Clear();
+            _pendingTrainingProgressLine = null;
+        }
+
+        _trainingLogUiTimer.Start();
+    }
+
+    private void StopTrainingLogUiUpdates()
+    {
+        _trainingLogUiTimer.Stop();
+        UpdateTrainingLogUi();
+    }
+
+    private void TrainingLogUiTimer_Tick(object? sender, EventArgs e) =>
+        UpdateTrainingLogUi();
+
+    private void UpdateTrainingLogUi()
+    {
+        var lines = TakePendingTrainingLogLines();
+        if (lines.Count == 0)
+        {
+            return;
+        }
+
+        TrainingLastLogText.Text = lines[^1].Text;
+        _trainingLogWindow?.AppendLines(lines);
+    }
+
+    private List<TrainingLogLine> TakePendingTrainingLogLines()
+    {
+        lock (_trainingLogUiSync)
+        {
+            var lines = new List<TrainingLogLine>(MaximumTrainingLogLinesPerUiUpdate + 1);
+            while (lines.Count < MaximumTrainingLogLinesPerUiUpdate &&
+                   _pendingTrainingLogLines.TryDequeue(out var line))
+            {
+                lines.Add(line);
+            }
+
+            if (_pendingTrainingLogLines.Count == 0 && _pendingTrainingProgressLine is not null)
+            {
+                lines.Add(_pendingTrainingProgressLine);
+                _pendingTrainingProgressLine = null;
+            }
+
+            return lines;
+        }
     }
 
     private void OpenTrainingLog_Click(object sender, RoutedEventArgs e)

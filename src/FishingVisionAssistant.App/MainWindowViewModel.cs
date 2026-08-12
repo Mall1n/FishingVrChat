@@ -362,12 +362,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Обновляет live-метрики на каждом inference и применяет только созданные detector preview.
+    /// Обновляет preview каждого live-кадра, а показатели инспектора — по его частоте.
     /// </summary>
     public void ApplyLiveFrame(
         LiveFrameAnalysis analysis,
-        PerformanceSnapshot performance,
-        LivePreviewSettings previewSettings)
+        LiveInspectorSnapshot inspector,
+        LivePreviewSettings previewSettings,
+        bool updateInspector)
     {
         ArgumentNullException.ThrowIfNull(previewSettings);
         var result = analysis.PanelDetection;
@@ -400,23 +401,27 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             }
         }
 
-        PreprocessLatency = FormatLatency(result.Timings?.Preprocess);
-        ColorConversionLatency = FormatLatency(result.Timings?.ColorConversion);
-        LetterboxLatency = FormatLatency(result.Timings?.Letterbox);
-        TensorCreationLatency = FormatLatency(result.Timings?.TensorCreation);
-        InferenceLatency = FormatLatency(result.Timings?.Inference);
-        PostprocessLatency = FormatLatency(result.Timings?.Postprocess);
-        PipelineLatency = FormatLatency(analysis.EndToEndTime);
-        DecodeLatency = FormatLatency(analysis.CaptureCopyTime);
-        QueueWaitLatency = FormatLatency(analysis.QueueTime);
-        PipelineFps = performance.SampleCount == 0 ? "—" : $"{performance.FramesPerSecond:F1}";
-        PerformanceSummary = performance.SampleCount == 0
-            ? $"live cold {performance.ColdStartMilliseconds:F1} мс · ожидание прогретых кадров"
-            : $"live cold {performance.ColdStartMilliseconds:F1} · median {performance.MedianMilliseconds:F1} · " +
-              $"p95 {performance.Percentile95Milliseconds:F1} мс";
+        if (updateInspector)
+        {
+            var timings = inspector.MedianTimings;
+            PreprocessLatency = FormatLatency(timings?.Preprocess);
+            ColorConversionLatency = FormatLatency(timings?.ColorConversion);
+            LetterboxLatency = FormatLatency(timings?.Letterbox);
+            TensorCreationLatency = FormatLatency(timings?.TensorCreation);
+            InferenceLatency = FormatLatency(timings?.Inference);
+            PostprocessLatency = FormatLatency(timings?.Postprocess);
+            PipelineLatency = FormatLatency(analysis.EndToEndTime);
+            DecodeLatency = FormatLatency(inspector.MedianCaptureCopyTime);
+            QueueWaitLatency = FormatLatency(inspector.MedianQueueTime);
+            PipelineFps = $"{inspector.PipelineFramesPerSecond:F1}";
+            PerformanceSummary = $"live · 5 с · {inspector.SampleCount} кадров · median " +
+                                 $"{inspector.MedianEndToEndTime.TotalMilliseconds:F1} · p95 " +
+                                 $"{inspector.Percentile95EndToEndTime.TotalMilliseconds:F1} мс";
+            FramePosition = $"live #{analysis.SequenceNumber:N0}";
+            VideoPosition = "LIVE · latest-frame";
+        }
+
         CacheStatus = FormatLiveProcessingMode(analysis.PreviewOutputs);
-        FramePosition = $"live #{analysis.SequenceNumber:N0}";
-        VideoPosition = "LIVE · latest-frame";
         SourceStatus = result.IsDetected
             ? "Live capture · рамка найдена"
             : "Live capture · рамка не найдена";
